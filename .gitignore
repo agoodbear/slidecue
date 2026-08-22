@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.ehpk
+verify.log
+*.bak-*
+
+# 內部評估與個人筆記，不對外
+docs/
+START-HERE.md

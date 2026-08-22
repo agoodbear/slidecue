@@ -1,0 +1,192 @@
+/* ── 戴上 G2 看出去 ───────────────────────────────────────────
+   真實的 AR 眼鏡，字是投影在鏡片上的：轉頭時場景會移動，
+   但字始終停在視野的同一個位置。這個模擬的重點就是重現這件事。 */
+.viewport{
+  position:relative;aspect-ratio:2/1;width:100%;border-radius:.6rem;overflow:hidden;
+  background:#0a0d0c;cursor:crosshair;isolation:isolate;
+  border:1px solid var(--rule);
+}
+/* 場景層：會隨滑鼠/傾斜移動，模擬轉頭 */
+.scene{
+  position:absolute;inset:-12%;
+  transition:transform .35s cubic-bezier(.2,.8,.3,1);
+  will-change:transform;
+}
+.scene::before{ /* 演講廳的空間感 */
+  content:"";position:absolute;inset:0;
+  background:
+    radial-gradient(120% 80% at 50% 22%, #1d2a33 0%, #10171c 45%, #070b0e 100%);
+}
+/* 投影幕 */
+.screen{
+  position:absolute;left:29%;top:16%;width:42%;height:34%;border-radius:2px;
+  background:linear-gradient(160deg,#2f4756,#1b2a34);
+  box-shadow:0 0 60px 18px rgba(90,140,170,.18);
+}
+.screen::after{
+  content:"";position:absolute;inset:11% 13%;
+  background:
+    linear-gradient(#4a6a7d 0 0) 0 12%/58% 5% no-repeat,
+    linear-gradient(#3c586a 0 0) 0 34%/84% 4% no-repeat,
+    linear-gradient(#3c586a 0 0) 0 50%/72% 4% no-repeat,
+    linear-gradient(#3c586a 0 0) 0 66%/80% 4% no-repeat;
+}
+/* 觀眾席剪影 */
+.rows{position:absolute;left:0;right:0;bottom:0;height:46%}
+.rows i{
+  position:absolute;bottom:0;display:block;border-radius:44% 44% 0 0;
+  background:linear-gradient(#0d1418,#05080a);
+}
+/* 講台 */
+.podium{
+  position:absolute;left:7%;bottom:6%;width:13%;height:26%;border-radius:3px 3px 0 0;
+  background:linear-gradient(160deg,#1a242b,#0b1114);
+}
+
+/* HUD 層：固定不動——這正是 AR 眼鏡與貼在牆上的投影的差別 */
+.hud{
+  position:absolute;inset:0;padding:3.2% 3%;
+  display:flex;flex-direction:column;gap:2.6%;
+  font-family:var(--mono);color:#4dff6a;
+  text-shadow:0 0 6px rgba(77,255,106,.55),0 0 18px rgba(77,255,106,.22);
+  pointer-events:none;
+}
+.hudbar{display:flex;gap:1.4%;font-size:clamp(7px,1.55vw,13px)}
+.cell{
+  border:1px solid rgba(77,255,106,.55);border-radius:3px;
+  padding:.18em .5em;white-space:nowrap;
+}
+.cell.grow{flex:1}
+.cell.right{margin-left:auto}
+.hudbody{display:flex;gap:1.6%;flex:1;min-height:0}
+.caret{
+  width:1.4em;flex:none;font-size:clamp(9px,1.9vw,16px);line-height:1.62;
+  display:flex;flex-direction:column;
+}
+.caret span{opacity:0;transition:opacity .18s}
+.caret span.on{opacity:1}
+.lines{
+  font-size:clamp(9px,1.9vw,16px);line-height:1.62;
+  font-family:var(--sans);letter-spacing:.01em;
+}
+.lines p{margin:0;opacity:.45;transition:opacity .3s}
+.lines p.on{opacity:1}
+
+.vp-hint{
+  position:absolute;right:.6rem;bottom:.5rem;z-index:2;
+  font-family:var(--mono);font-size:.68rem;color:rgba(150,190,170,.5);
+  pointer-events:none;
+}
+@media (prefers-reduced-motion:reduce){
+  .scene{transition:none}
+}
+
+/* ── 手機設定頁示意 ────────────────────────────────────────── */
+.phone{
+  max-width:330px;margin:0 auto;border:1px solid var(--rule);border-radius:1.4rem;
+  background:var(--surface);padding:1rem .85rem;display:flex;flex-direction:column;gap:.6rem;
+  box-shadow:0 8px 30px rgba(0,0,0,.08);
+}
+.pcard{background:var(--paper);border-radius:.55rem;padding:.7rem .8rem;
+  display:flex;flex-direction:column;gap:.45rem}
+.pcard h4{margin:0;font-size:.82rem;font-weight:700}
+.pseg{display:flex;gap:.35rem}
+.pseg span{flex:1;text-align:center;font-size:.76rem;padding:.4rem;border-radius:.4rem;
+  border:1px solid var(--rule);background:var(--surface)}
+.pseg span.on{background:#fef991;border-color:#e8dd6a;color:#1a1a1a;font-weight:600}
+.prow{display:flex;gap:.4rem;align-items:center}
+.pinput{flex:1;font-size:.78rem;padding:.4rem .5rem;border:1px solid var(--rule);
+  border-radius:.4rem;background:var(--surface);font-family:var(--mono)}
+.pbtn{font-size:.76rem;padding:.4rem .7rem;border-radius:.4rem;background:#fef991;
+  color:#1a1a1a;font-weight:600}
+.pnote{font-size:.68rem;color:var(--faint);line-height:1.5;margin:0}
+.pdeck{display:flex;justify-content:space-between;font-size:.76rem;padding:.4rem .5rem;
+  border:1px solid var(--rule);border-radius:.4rem}
+.pdeck.on{border-color:#e8dd6a;background:rgba(254,249,145,.16)}
+.pchips{display:flex;flex-wrap:wrap;gap:.3rem}
+.pchips span{font-size:.72rem;padding:.25rem .5rem;border:1px solid var(--rule);border-radius:999px}
+.pchips span.on{background:#fef991;border-color:#e8dd6a;color:#1a1a1a;font-weight:600}
+.pcheck{display:flex;gap:.45rem;align-items:center;font-size:.78rem}
+.pcheck i{width:.85rem;height:.85rem;border:1px solid var(--faint);border-radius:.2rem;display:block;flex:none}
+.pstatus{display:flex;gap:.45rem;align-items:center;font-size:.8rem;font-weight:600}
+.pdot{width:.5rem;height:.5rem;border-radius:50%;background:#3fae6a;flex:none}
+
+/* 設定項的說明表 */
+.settings{display:flex;flex-direction:column;gap:1.2rem}
+.setting{display:grid;grid-template-columns:auto 1fr;gap:.2rem .8rem}
+.setting .k{grid-column:1;font-weight:700;white-space:nowrap}
+.setting .v{grid-column:2;color:var(--soft);font-size:.93rem}
+.setting .d{grid-column:1/-1;font-size:.88rem;color:var(--faint);
+  border-left:2px solid var(--rule);padding-left:.8rem;margin-top:.2rem}
+
+/* ── 鏡片圖例：直接標在畫面上，比表格直觀 ────────────────── */
+.legend{display:flex;flex-direction:column;gap:1.4rem}
+
+.lens-map{
+  position:relative;aspect-ratio:2/1;width:100%;border-radius:.5rem;overflow:hidden;
+  background:#080b0a;border:1px solid var(--rule);
+  padding:3.2% 3%;display:flex;flex-direction:column;gap:2.6%;
+  font-family:var(--mono);color:#4dff6a;
+  text-shadow:0 0 6px rgba(77,255,106,.45);
+}
+.lens-map .hudbar{display:flex;gap:1.4%;font-size:clamp(7px,1.5vw,12px)}
+.lens-map .cell{
+  border:1px solid rgba(77,255,106,.5);border-radius:3px;
+  padding:.18em .5em;white-space:nowrap;position:relative;
+}
+.lens-map .cell.grow{flex:1}
+.lens-map .cell.right{margin-left:auto}
+.lens-map .body{display:flex;gap:1.6%;flex:1;min-height:0;position:relative}
+.lens-map .car{
+  width:1.4em;flex:none;font-size:clamp(9px,1.8vw,15px);line-height:1.62;position:relative;
+}
+.lens-map .txt{
+  font-family:var(--sans);font-size:clamp(9px,1.8vw,15px);line-height:1.62;
+}
+.lens-map .txt p{margin:0}
+.lens-map .txt p:first-child{opacity:1}
+.lens-map .txt p{opacity:.45}
+
+/* 編號徽章：貼在被說明的元件旁邊 */
+.pin{
+  position:absolute;top:-.6em;left:-.6em;z-index:2;
+  width:1.5em;height:1.5em;border-radius:50%;
+  background:#4dff6a;color:#06110a;
+  font-family:var(--mono);font-weight:700;font-size:clamp(7px,1.35vw,11px);
+  /* ⚠️ line-height 必須明確設 1：這個徽章浮在 HUD 裡，
+     而 HUD 的行高是 1.62，繼承下來會把數字的基線推到圓圈下緣甚至溢出。
+     置中用 flex 而非 grid——同樣有效，但不受父層 grid 設定干擾。 */
+  line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  text-shadow:none;box-shadow:0 0 0 2px #080b0a;
+  font-variant-numeric:tabular-nums;
+}
+.pin.br{top:auto;bottom:-.55em;left:auto;right:-.55em}
+
+/* 說明清單 */
+.legend ol{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:.7rem}
+.legend li{display:grid;grid-template-columns:1.55rem auto 1fr;gap:.15rem .75rem;align-items:baseline}
+.legend li::before{
+  content:counter(li);counter-increment:li;
+  font-family:var(--mono);font-weight:700;font-size:.72rem;
+  width:1.35rem;height:1.35rem;border-radius:50%;
+  background:var(--wash);color:var(--accent);
+  line-height:1;display:flex;align-items:center;justify-content:center;
+  font-variant-numeric:tabular-nums;
+}
+.legend ol{counter-reset:li}
+.legend .sample{
+  font-family:var(--mono);font-size:.82rem;white-space:nowrap;
+  background:#0b110e;color:#5fbe84;padding:.15rem .45rem;border-radius:.25rem;
+  border:1px solid rgba(95,190,132,.3);
+}
+.legend .what{color:var(--soft);font-size:.93rem;line-height:1.65}
+@media (max-width:34rem){
+  .legend li{grid-template-columns:1.55rem 1fr}
+  .legend .sample{grid-column:2;justify-self:start;margin-bottom:.15rem}
+  .legend .what{grid-column:2}
+}
+
+/* 表格：中文欄位不要被逐字折行 */
+table td:first-child,table th:first-child{white-space:nowrap}
+table code{white-space:nowrap}

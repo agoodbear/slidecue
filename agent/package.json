@@ -1,0 +1,20 @@
+{
+  "name": "slidecue-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mac 端常駐程式：讀 Keynote 播放狀態與講者附註，推送到 SlideCue 眼鏡端",
+  "scripts": {
+    "dev": "node --experimental-strip-types src/index.ts",
+    "probe": "node --experimental-strip-types src/keynote.ts"
+  },
+  "dependencies": {
+    "opencc-js": "^1.4.1",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3"
+  }
+}

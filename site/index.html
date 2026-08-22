@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SlideCue — Keynote 講稿同步到 G2 鏡片</title>
+<meta name="description" content="把 Keynote 的講者附註顯示在 Even Realities G2 鏡片上，翻頁自動換稿。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root{
+    --paper:#f7f6f3;--surface:#fffefc;--ink:#1b1e22;--soft:#4d5257;--faint:#83898d;
+    --rule:#e0ded8;--accent:#2d7d4f;--wash:#e8f2ea;--warn:#9a6f28;--warn-wash:#f6eeda;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+    --sans:"Noto Sans TC",-apple-system,"PingFang TC",sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+    --paper:#14161a;--surface:#1b1e23;--ink:#e8e6e1;--soft:#b0b4b8;--faint:#7d8388;
+    --rule:#2c3037;--accent:#5fbe84;--wash:#1c2b23;--warn:#d2a45c;--warn-wash:#2b2519;}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+       font-size:16px;line-height:1.8;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:72ch;margin:0 auto;padding:3.5rem 1.4rem 5rem;
+        display:flex;flex-direction:column;gap:3rem}
+  h1{font-size:clamp(1.7rem,5vw,2.3rem);margin:0;line-height:1.3;text-wrap:balance}
+  h2{font-size:1.25rem;margin:0;padding-bottom:.4rem;border-bottom:2px solid var(--ink)}
+  h3{font-size:1rem;margin:.8rem 0 .1rem}
+  p,ul,ol{margin:0}
+  ul,ol{padding-left:1.3rem;display:flex;flex-direction:column;gap:.4rem}
+  section{display:flex;flex-direction:column;gap:.95rem}
+  .lede{color:var(--soft);font-size:1.05rem}
+  a{color:var(--accent)}
+  code{font-family:var(--mono);background:var(--wash);color:var(--accent);
+       padding:.1em .35em;border-radius:.25rem;font-size:.88em}
+  .steps{counter-reset:s;list-style:none;padding:0;gap:1.1rem}
+  .steps li{counter-increment:s;display:grid;grid-template-columns:2rem 1fr;gap:0 .9rem}
+  .steps li::before{content:counter(s);font-family:var(--mono);font-weight:600;font-size:.85rem;
+    width:1.7rem;height:1.7rem;display:grid;place-items:center;border-radius:50%;
+    background:var(--wash);color:var(--accent)}
+  .steps .body{display:flex;flex-direction:column;gap:.3rem}
+  .note{background:var(--warn-wash);border-left:3px solid var(--warn);
+        border-radius:0 .3rem .3rem 0;padding:.8rem 1rem;font-size:.92rem}
+  .card{background:var(--surface);border:1px solid var(--rule);border-radius:.5rem;padding:1.2rem 1.3rem}
+  .meta{font-family:var(--mono);font-size:.78rem;color:var(--faint)}
+  footer{border-top:1px solid var(--rule);padding-top:1.2rem;font-size:.85rem;color:var(--faint);
+         display:flex;flex-direction:column;gap:.4rem}
+  .en{color:var(--soft);font-size:.92rem}
+  table{border-collapse:collapse;width:100%;font-size:.92rem}
+  td,th{padding:.5rem .6rem;text-align:left;border-bottom:1px solid var(--rule);vertical-align:top}
+  th{font-size:.78rem;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);font-family:var(--mono)}
+  .cap{font-size:.85rem;color:var(--faint);text-align:center}
+  .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr));gap:1.4rem;align-items:start}
+</style>
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>SlideCue</h1>
+  <p class="lede">把 Keynote 的講者附註顯示在 Even Realities G2 鏡片上，翻頁自動換稿。</p>
+</header>
+
+<section>
+  <h2>戴上眼鏡看出去是這樣</h2>
+  <div class="viewport">
+    <div class="scene">
+      <div class="screen"></div>
+      <div class="podium"></div>
+      <div class="rows"></div>
+    </div>
+    <div class="hud">
+      <div class="hudbar">
+        <span class="cell" data-clock>現在 09:05</span>
+        <span class="cell" data-elapsed>授課 12 分</span>
+        <span class="cell grow">下課倒數 18 分</span>
+        <span class="cell right">3/24 (1/2)</span>
+      </div>
+      <div class="hudbody">
+        <div class="caret"><span>▶</span><span>▶</span><span>▶</span><span>▶</span></div>
+        <div class="lines">
+          <p>第二件事：先問代價，再問好處。</p>
+          <p>好處通常很容易想像，</p>
+          <p>代價往往要等到做完才看得見。</p>
+          <p>所以任何提案都要先寫下失敗的損失。</p>
+        </div>
+      </div>
+    </div>
+    <div class="vp-hint">移動滑鼠試試（手機請傾斜）</div>
+  </div>
+  <p class="cap">
+    轉頭時場景會移動，<strong>但字始終停在視野的同一個位置</strong>——
+    因為它是投影在鏡片上，不是貼在牆上。左側箭頭標示你正在念的那一行。
+  </p>
+  <p class="note">
+    實際上鏡片是單色綠、576 × 288 像素，看起來就像浮在你正前方約兩公尺處的一塊字幕，
+    <strong>不會擋住聽眾的臉</strong>，低頭看稿的動作也就不需要了。
+  </p>
+</section>
+
+<section>
+  <h2>怎麼運作</h2>
+  <p>SlideCue 有兩個部分，兩個都要有才會動：</p>
+  <table>
+    <thead><tr><th>部分</th><th>跑在哪</th><th>做什麼</th></tr></thead>
+    <tbody>
+      <tr><td><strong>電腦端</strong></td><td>你的 Mac，背景常駐</td><td>讀 Keynote 目前播到第幾張、那張的講稿是什麼，透過區域網路送出</td></tr>
+      <tr><td><strong>手機端</strong></td><td>手機（從 Even Hub 安裝）</td><td>收到之後畫在鏡片上</td></tr>
+    </tbody>
+  </table>
+  <p class="note">
+    眼鏡和手機都看不到你的 Keynote。<strong>只有跑在 Mac 上的程式能問 macOS「現在播到第幾張」</strong>，
+    所以電腦端不是選配，是必要的。
+  </p>
+</section>
+
+<section>
+  <h2>安裝</h2>
+  <ol class="steps">
+    <li><div class="body"><strong>在手機安裝 SlideCue</strong>
+      <span>從 Even Hub 商店搜尋 SlideCue 並安裝。</span></div></li>
+    <li><div class="body"><strong>下載電腦端並拖進「應用程式」</strong>
+      <span>下載後解壓縮，把 <code>SlideCue.app</code> 拖到「應用程式」資料夾。</span></div></li>
+    <li><div class="body"><strong>第一次打開要按右鍵</strong>
+      <span>在 <code>SlideCue.app</code> 上<strong>按右鍵 →「打開」</strong>，然後在跳出的視窗再按一次「打開」。
+      直接雙擊會被 macOS 擋下來，那是因為這個程式沒有付費的開發者簽章，不是有問題。</span></div></li>
+    <li><div class="body"><strong>允許它控制 Keynote</strong>
+      <span>macOS 會問「SlideCue 想要控制 Keynote」，按<strong>「好」</strong>。不允許的話它讀不到講稿。</span></div></li>
+    <li><div class="body"><strong>把連線碼輸入手機</strong>
+      <span>電腦上會跳出一組三位數（例如 <code>199</code>），在手機的 SlideCue 輸入一次即可，之後會記住。</span></div></li>
+    <li><div class="body"><strong>打開 Keynote 按播放</strong>
+      <span>講稿就會出現在鏡片上。之後每次開機，電腦端都會自動在背景待命，不必再管它。</span></div></li>
+  </ol>
+  <div class="card">
+    <p class="meta">電腦端 · macOS 13 或更新 · Apple Silicon 與 Intel · 約 72 MB</p>
+    <p style="margin:.5rem 0 0">下載連結準備中。</p>
+    <p class="meta" style="margin:.6rem 0 0">
+      內含執行所需的一切，不必另外安裝 Node.js、Homebrew 或任何開發工具。
+    </p>
+  </div>
+  <p class="note">
+    手機與 Mac 要連在<strong>同一個 Wi-Fi</strong>。會場沒有 Wi-Fi 時，用手機開個人熱點讓 Mac 連上也可以。
+  </p>
+</section>
+
+<section>
+  <h2>手機上的設定</h2>
+  <p>鏡片只負責顯示，所有設定都在手機的 SlideCue 裡。打開後會看到這些：</p>
+
+  <div class="two">
+    <div class="phone">
+      <div style="font-weight:700;font-size:1.05rem">SlideCue</div>
+      <div class="pnote" style="margin-top:-.35rem">Keynote 講稿同步到鏡片</div>
+
+      <div class="pcard">
+        <div class="pstatus"><i class="pdot"></i>已連上電腦</div>
+        <p class="pnote">第 3 / 24 張　第二件事：先問代價，再問好處。</p>
+      </div>
+
+      <div class="pcard"><h4>連線碼</h4>
+        <div class="prow"><span class="pinput">199</span><span class="pbtn">連線</span></div>
+      </div>
+
+      <div class="pcard"><h4>跟哪一份簡報</h4>
+        <div class="pdeck on"><span>自動</span><span style="opacity:.6">目前：季度回顧</span></div>
+        <div class="pdeck"><span>季度回顧.key</span><span style="opacity:.6">24 張</span></div>
+        <div class="pdeck"><span>備用簡報.key</span><span style="opacity:.6">8 張</span></div>
+      </div>
+
+      <div class="pcard"><h4>語音跟隨</h4>
+        <div class="pcheck"><i></i><span>邊念邊讓箭頭自己往下走</span></div>
+      </div>
+
+      <div class="pcard"><h4>翻頁方式</h4>
+        <div class="pseg"><span class="on">我自己翻</span><span>R1 戒指</span></div>
+      </div>
+
+      <div class="pcard"><h4>演講時長</h4>
+        <div class="pchips"><span>不用</span><span>15</span><span class="on">30</span><span>45</span><span>60</span><span>90</span></div>
+      </div>
+
+      <div class="pcard"><h4>語言</h4>
+        <div class="pseg"><span class="on">繁體中文</span><span>English</span></div>
+      </div>
+    </div>
+
+    <div class="settings">
+      <div class="setting">
+        <span class="k">連線狀態</span><span class="v">最上方那一格</span>
+        <span class="d">綠點是已連上電腦，黃點是離線但正在用手機裡存的講稿，灰點是還沒連上。
+        下面一行會顯示目前第幾張、以及那張講稿的開頭，用來確認跟對了簡報。</span>
+      </div>
+      <div class="setting">
+        <span class="k">連線碼</span><span class="v">三位數</span>
+        <span class="d">輸入電腦上顯示的那組數字。連上一次之後就會記住，只有換場地、換網路時才需要重新輸入。
+        也可以直接填完整位址（例如 <code>192.168.1.50</code> 或 <code>我的電腦.local</code>）。</span>
+      </div>
+      <div class="setting">
+        <span class="k">跟哪一份簡報</span><span class="v">預設「自動」</span>
+        <span class="d">自動＝跟著你按下播放的那一份，多數時候不必動它。
+        開了好幾份簡報、又想在上台前先確認講稿時，可以在這裡直接點名。
+        點名之後就算播放別份也不會被切走；那份被關掉時會自動回到「自動」。</span>
+      </div>
+      <div class="setting">
+        <span class="k">語音跟隨</span><span class="v">預設關閉</span>
+        <span class="d">開啟後會用<strong>眼鏡的麥克風</strong>辨識你念到哪一行，箭頭自己往下走，念稿時完全不必動手。
+        辨識全部在你自己的電腦上進行，不上傳雲端。關著的時候，箭頭靠在鏡腿上滑動來移動。
+        兩者隨時可以互相接手——語音跟丟了，滑一下就把箭頭移回來。<br>
+        <strong>第一次開啟時會下載辨識模型（約 141 MB），只下載這一次</strong>，
+        手機上會顯示進度。之後即使沒有網路也能用，因為辨識完全在本機進行。</span>
+      </div>
+      <div class="setting">
+        <span class="k">翻頁方式</span><span class="v">預設「我自己翻」</span>
+        <span class="d"><strong>我自己翻</strong>：你用簡報器或鍵盤翻 Keynote，鏡片上的講稿自動跟上。<br>
+        <strong>R1 戒指</strong>：反過來，用戒指同時翻 Keynote 和講稿，手上不必再拿簡報器。</span>
+      </div>
+      <div class="setting">
+        <span class="k">演講時長</span><span class="v">預設不用</span>
+        <span class="d">設定後，鏡片右上會顯示還剩多久。<strong>最後五分鐘會出現一條逐格熄滅的進度條</strong>，
+        超時則改成顯示超了多久。平常只顯示到分鐘，最後五分鐘才精確到秒——
+        那不只是為了好看，也是為了不讓每秒更新佔用藍牙頻寬。</span>
+      </div>
+      <div class="setting">
+        <span class="k">語言</span><span class="v">繁體中文 / English</span>
+        <span class="d">連<strong>鏡片上的字</strong>都會跟著換（現在／授課／下課倒數）。
+        第一次打開時會照手機的系統語言自動選，之後記住你的選擇。</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>鏡片上的畫面在說什麼</h2>
+  <div class="legend">
+    <div class="lens-map">
+      <div class="hudbar">
+        <span class="cell"><span class="pin">1</span>現在 09:05</span>
+        <span class="cell"><span class="pin">2</span>授課 12 分</span>
+        <span class="cell grow"><span class="pin">3</span>下課倒數 18 分</span>
+        <span class="cell right"><span class="pin">4</span>3/24 (1/2)</span>
+      </div>
+      <div class="body">
+        <div class="car"><span class="pin">5</span>▶</div>
+        <div class="txt">
+          <p>第二件事：先問代價，再問好處。</p>
+          <p>好處通常很容易想像，</p>
+          <p>代價往往要等到做完才看得見。</p>
+        </div>
+      </div>
+    </div>
+
+    <ol>
+      <li><span class="sample">現在 09:05</span><span class="what">目前時刻。</span></li>
+      <li><span class="sample">授課 12 分</span><span class="what">從按下播放到現在講了多久。</span></li>
+      <li><span class="sample">下課倒數 18 分</span><span class="what">離設定的結束時間還剩多久。沒設演講時長時這一格是空的；<strong>最後五分鐘會出現一條逐格熄滅的進度條</strong>，超時則改成顯示超了多久。</span></li>
+      <li><span class="sample">3/24 (1/2)</span><span class="what">第 3 張、共 24 張。<strong>括號是這張的講稿分成兩頁、你正在第 1 頁</strong>——代表這張還有沒念到的內容。若顯示 <code>▷2/3</code>，表示這張沒有自己的講稿、沿用前一張（逐項展開的頁面很常見）。</span></li>
+      <li><span class="sample">▶</span><span class="what">你正在念的那一行。用語音跟隨會自己往下走，也可以在鏡腿上滑動自己移。</span></li>
+    </ol>
+  </div>
+  <p class="note">
+    講稿念到接近底部時會<strong>提前往下捲</strong>，不會等到看不見下一行才翻頁——
+    台上最怕的就是念完最後一行卻不知道接下來要講什麼。
+  </p>
+</section>
+
+<section>
+  <h2>常見問題</h2>
+  <h3>手機找不到電腦</h3>
+  <p>先確認兩者連著同一個 Wi-Fi，然後在手機的「連線碼」欄位重新輸入電腦上顯示的三位數。
+  部分公司或飯店的 Wi-Fi 會阻擋裝置互連，那種情況請改用手機熱點。</p>
+  <h3>鏡片上是空白的</h3>
+  <p>表示手機連上了但 Keynote 沒有在播放。打開簡報按下播放即可。</p>
+  <h3>箭頭不會自己跟著我念</h3>
+  <p>語音跟隨預設關閉，要在手機的 SlideCue 裡自行開啟。</p>
+  <h3>開了語音跟隨，箭頭卻沒反應</h3>
+  <p>第一次開啟時要先下載辨識模型（約 141 MB），手機上會顯示下載進度，完成後才會開始跟隨。
+  若進度卡住，通常是網路問題，關掉再開一次即可重新下載。</p>
+  <h3>演講途中斷線了怎麼辦</h3>
+  <p>整份講稿在連上時就已經存進手機，斷線後畫面不會消失，可以用手勢自己推進。
+  網路恢復後會自動接回去。</p>
+</section>
+
+<section id="privacy">
+  <h2>隱私權政策</h2>
+  <p class="meta">最後更新：2026-08-22</p>
+
+  <h3>我們不蒐集任何資料</h3>
+  <p>SlideCue 沒有伺服器，也沒有帳號。我們（開發者）不會收到、儲存或看到你的任何資料。</p>
+
+  <h3>你的講稿去了哪裡</h3>
+  <p>講稿從你自己 Mac 上的 Keynote 讀出，經由<strong>你自己的區域網路</strong>傳到你的手機，
+  再由手機透過藍牙顯示在眼鏡上。整段路徑都在你自己的裝置與網路之間，
+  <strong>不經過開發者的伺服器，也不經過任何第三方雲端服務</strong>。</p>
+
+  <h3>手機上存了什麼</h3>
+  <p>為了在演講途中斷線時仍能繼續顯示，整份講稿會存在手機 App 的本機儲存空間。
+  移除 App 即一併清除。此外還會記住你的連線碼、介面語言與偏好設定。</p>
+
+  <h3>語音跟隨（選用，預設關閉）</h3>
+  <p>開啟後會使用眼鏡的麥克風收音，音訊經由區域網路傳到<strong>你自己的 Mac</strong>，
+  由在該台電腦上執行的語音辨識程式處理。<strong>不上傳任何雲端服務，不保留錄音</strong>，
+  辨識結果只用來決定提詞箭頭停在哪一行。關閉時完全不存取麥克風。</p>
+
+  <h3>權限</h3>
+  <table>
+    <thead><tr><th>權限</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td>眼鏡麥克風</td><td>僅在你開啟「語音跟隨」時使用，辨識完全在你自己的電腦上進行</td></tr>
+    </tbody>
+  </table>
+  <p>本 App 不要求也不使用位置、相簿、相機或手機麥克風權限。</p>
+
+  <h3>兒童</h3>
+  <p>本 App 並非針對兒童設計，也不會蒐集任何個人資料。</p>
+
+  <h3>English summary</h3>
+  <p class="en">
+    SlideCue has no servers and no accounts. The developer receives, stores, and sees nothing.
+    Your speaker notes travel only between your own Mac, your own phone, and your own glasses
+    over your own local network — never through the developer's or any third party's servers.
+    The full script is cached in the app's local storage on your phone so it survives a dropped
+    connection, and is removed when you uninstall the app. Voice Follow is optional and off by
+    default; when enabled, audio from the glasses microphone is sent over your local network to a
+    speech-recognition process running entirely on your own Mac — no cloud service, no recording
+    retained. No location, photo library, camera, or phone-microphone permission is requested or used.
+  </p>
+</section>
+
+<footer>
+  <div>語音辨識使用 <a href="https://github.com/ggml-org/whisper.cpp">whisper.cpp</a>（MIT License, Copyright © 2023-2026 The ggml authors）。</div>
+  <div>SlideCue is not affiliated with Apple Inc. or Even Realities. Keynote is a trademark of Apple Inc.</div>
+  <div>SlideCue 為個人開發的免費工具，與 Apple、Even Realities 均無隸屬關係。</div>
+</footer>
+
+</div>
+<script src="demo.js"></script>
+</body>
+</html>
