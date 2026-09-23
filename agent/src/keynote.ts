@@ -115,7 +115,13 @@ export async function snapshot(pinned: string | null = null): Promise<KeynoteSna
     : `
       set d to front document`
 
+  // ⚠️ 先確認 Keynote 在跑，才對它 tell。
+  // 這支是輪詢每一輪的第一步，Keynote 關掉時仍每 10 秒被呼叫一次；直接 tell 會把它重新叫起來，
+  // 2026-09-14 實測：使用者結束 Keynote 後 3–13 秒內被叫回，停在「打開」視窗。
+  // `application id … is running` 不送 AppleEvent、不會啟動 app（同日實測兩個分支），
+  // 而且跟查詢在同一次 osascript 裡，不像 pgrep 在高頻輪詢時每次多開一個行程。
   const raw = await osa(`
+    if not (application id "${activeApp}" is running) then return "0${US}false${US}0${US}0${US}${US}0"
     tell application id "${activeApp}"
       set c to count of documents
       if c is 0 then return "0${US}false${US}0${US}0${US}${US}0"
