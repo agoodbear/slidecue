@@ -1,4 +1,4 @@
-import { alignToLine, normalize, bigrams, dice } from '../src/align.ts'
+import { alignToLine, normalize, bigrams, dice, speakableLines } from '../src/align.ts'
 
 let pass = 0, fail = 0
 function check(name: string, cond: boolean, detail = '') {
@@ -90,6 +90,26 @@ console.log('\n[10] 重複詞不會誤判')
   // 箭頭在第 2 行，聽到「這位病人心電圖顯示異常」應該留在第 2 行不倒退
   const r = alignToLine('這位病人心電圖顯示異常', dup, 2)
   check('對到正確的那一行', r.line === 2, `得到 ${r.line} (score ${r.score.toFixed(2)})`)
+}
+
+// 2026-09-23 回歸：講稿結構版備忘錄開頭有標題＋空行＋分隔線，
+// 舊版 lookahead 只數實體行，箭頭停在第 0 行永遠看不到第一句台詞。
+{
+  const L = [
+    '【① 轉換｜03:25　30 秒】為什麼留下來：看得到它在做什',
+    '麼',
+    '',
+    '── 台上講 ──',
+    '〔原話〕一開始我很習慣龍蝦的工作流，但後來真正跳到',
+    'Claude Code 之後，又被它的工作流給吸引。',
+    '',
+    '── 補充（不用念，被問到再講） ──',
+    '・前四句是你9/19的原話：投影片放原文',
+  ]
+  check('結構版：只收台上講區', JSON.stringify(speakableLines(L)) === '[4,5]')
+  check('結構版：第 0 行就能對到第一句台詞', alignToLine('一開始我很習慣龍蝦的工作流', L, 0).line === 4)
+  check('結構版：補充段不會被對到', alignToLine('前四句是你的原話投影片放原文', L, 5).line === -1)
+  check('〔原話〕標記被正規化拿掉', normalize('〔原話〕你好') === '你好')
 }
 
 console.log(`\n結果: ${pass} 通過 / ${fail} 失敗\n`)

@@ -66,11 +66,13 @@ export function alignToLine(
   let bestLine = -1
   let bestScore = 0
 
-  // 只往前看：從目前這一行開始，往後 lookahead 行
-  const from = Math.max(0, currentLine)
-  const to = Math.min(lines.length - 1, currentLine + lookahead)
+  // 只往前看：從目前這一行開始，往後 lookahead 個「會念出來的行」。
+  // 標題、分隔線、空行不算數——否則講稿開頭有三行標題時，
+  // 箭頭停在第 0 行就永遠看不到第一句台詞（2026-09-23 Meetup 講稿實際卡死）。
+  const speak = speakableLines(lines)
+  const candidates = speak.filter(i => i >= Math.max(0, currentLine)).slice(0, lookahead + 1)
 
-  for (let i = from; i <= to; i++) {
+  for (const i of candidates) {
     const score = dice(heardGrams, bigrams(normalize(lines[i])))
     // 嚴格大於：分數相同時保留較前面的行，避免無謂的前跳
     if (score > bestScore) {
@@ -84,6 +86,35 @@ export function alignToLine(
 }
 
 /**
+ * 哪些行會被念出來。
+ *
+ * 講稿結構版的備忘錄長這樣：
+ *   【① 轉換｜03:25　30 秒】標題…
+ *   ── 台上講 ──
+ *   〔原話〕真正要念的句子…
+ *   ── 補充（不用念，被問到再講） ──
+ *   ・…
+ * 有「── 台上講 ──」就只收它到下一條「──」分隔線之間；沒有就全部都算。
+ * 空行與分隔線本身一律不算。
+ */
+export function speakableLines(lines: string[]): number[] {
+  const isDivider = (l: string) => /^\s*──.*──\s*$/.test(l)
+  const stage = lines.findIndex(l => isDivider(l) && l.includes('台上講'))
+  let from = 0
+  let to = lines.length
+  if (stage >= 0) {
+    from = stage + 1
+    const next = lines.findIndex((l, i) => i > stage && isDivider(l))
+    if (next >= 0) to = next
+  }
+  const out: number[] = []
+  for (let i = from; i < to; i++) {
+    if (normalize(lines[i]).length > 0 && !isDivider(lines[i])) out.push(i)
+  }
+  return out
+}
+
+/**
  * 正規化：拿掉不影響語音的東西。
  *
  * 標點在語音裡本來就不存在，空白在中文裡也不穩定，
@@ -92,6 +123,9 @@ export function alignToLine(
 export function normalize(text: string): string {
   return text
     .toLowerCase()
+    // 講稿裡的標記不會念出來：〔原話〕〔建議〕、◆ 大字：
+    .replace(/〔[^〔〕]{0,6}〕/g, '')
+    .replace(/◆\s*大字[:：]?/g, '')
     .replace(/[\s　]+/g, '')
     .replace(/[，。、；：！？「」『』（）()[\]{}<>《》〈〉—…·.,;:!?"'`~@#$%^&*_+=|\\/-]/g, '')
 }

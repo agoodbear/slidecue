@@ -19,7 +19,7 @@
  * 給了 prompt 之後是 0.88，中間隔著整個安全邊際。
  */
 
-import { alignToLine, type AlignResult } from '../../glasses/src/align.ts'
+import { alignToLine, speakableLines, type AlignResult } from '../../glasses/src/align.ts'
 
 /** whisper-server 的位址。啟動時由 index.ts 探測後填入。 */
 let endpoint: string | null = null
@@ -165,7 +165,9 @@ export async function listenOnce(
   if (!hasSpeech(pcm)) return null
   if (lines.length === 0) return null
 
-  const heard = await transcribe(pcm, lines.join(''), sampleRate)
+  // prompt 只放會念出來的行。補充段放進去的話，whisper 會從那裡腦補句子，
+  // 而那些句子不在對齊範圍內，只會一直「對不上」。
+  const heard = await transcribe(pcm, speakableLines(lines).map(i => lines[i]).join(''), sampleRate)
   if (!heard) return null
 
   const r = alignToLine(heard, lines, currentLine)
