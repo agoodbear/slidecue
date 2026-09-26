@@ -73,15 +73,21 @@
   const clock = vp.querySelector('[data-clock]')
   const elapsed = vp.querySelector('[data-elapsed]')
   const t0 = Date.now()
+  // 語言由 <html lang> 決定，跟頁面上的切換鈕同一個來源，
+  // 否則時鐘每 10 秒就會把翻譯蓋回中文。
+  const isEn = () => document.documentElement.lang === 'en'
   function tick() {
     const d = new Date()
-    if (clock) clock.textContent =
-      '現在 ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    if (clock) clock.textContent = (isEn() ? 'Now ' : '現在 ') + hh + ':' + mm
     if (elapsed) {
       const m = Math.floor((Date.now() - t0) / 60000)
-      elapsed.textContent = '授課 ' + m + ' 分'
+      elapsed.textContent = isEn() ? ('Talk ' + m + ' min') : ('授課 ' + m + ' 分')
     }
   }
   tick()
   setInterval(tick, 10000)
+  // 切換語言時立刻重畫，不要等下一次 tick
+  window.addEventListener('langchange', tick)
 })()
