@@ -103,6 +103,7 @@ export const ID = {
   cursor: 6,
   elapsed: 7,
   countdown: 8,
+  input: 9,
 } as const
 
 export const NAME = {
@@ -114,7 +115,34 @@ export const NAME = {
   cursor: 'cursor',
   elapsed: 'elapsed',
   countdown: 'countdown',
+  input: 'input',
 } as const
+
+/**
+ * 專門收手勢的隱形小格：剛好一行高、內容只有一個空白，放在箭頭欄下方沒用到的角落。
+ *
+ * 為什麼不掛在箭頭欄：收事件的容器被滑動時，韌體會自己「晃一下」，掛在箭頭欄就是箭頭每滑一下抖一下。
+ * 為什麼不是全螢幕：v1.24.0 試過全螢幕空白層，實機戒指明顯變鈍——它 288px 高卻只有一行內容，
+ * 違反「收事件的容器高度必須貼齊內容」這條實機規則（見 CURSOR_H）。這一格高度＝一行、padding 0，
+ * 可捲空間是 0，跟箭頭欄同一個條件；晃的是一格空白，看不到。
+ *
+ * 位置：箭頭欄底到螢幕底只剩 24px，一行要 27px，所以往上疊 3px 在箭頭欄的下 padding 上（那裡沒有字）。
+ */
+export const INPUT_H = LINE_HEIGHT
+function inputCell(): TextContainerProperty {
+  return new TextContainerProperty({
+    xPosition: 0,
+    yPosition: SCREEN_H - INPUT_H,
+    width: CURSOR_W,
+    height: INPUT_H,
+    paddingLength: 0,
+    borderWidth: 0,
+    containerID: ID.input,
+    containerName: NAME.input,
+    isEventCapture: 1,
+    content: ' ',
+  })
+}
 
 /** 選單頁：標題 + 選項清單。模式選擇與時長選擇共用這個版型。 */
 export function menuPage(title: string, items: string[]): CreateStartUpPageContainer {
@@ -201,8 +229,9 @@ export function cuePage(
   script: string,
 ): RebuildPageContainer {
   return new RebuildPageContainer({
-    containerTotalNum: 6,
+    containerTotalNum: 7,
     textObject: [
+      inputCell(),
       topCell(ID.now, NAME.now, TOP.now, now),
       topCell(ID.elapsed, NAME.elapsed, TOP.elapsed, elapsed),
       topCell(ID.countdown, NAME.countdown, TOP.countdown, countdown),
@@ -228,7 +257,8 @@ export function cuePage(
         //
         // 箭頭欄的內容行數是固定的（見 lines.ts 的 cursorColumn），
         // 沒有可捲動的空間，韌體攔到事件也捲不動任何東西。
-        isEventCapture: 1,
+        // 事件交給 inputCell()（見上方說明）
+        isEventCapture: 0,
         content: cursor,
       }),
       new TextContainerProperty({
@@ -288,8 +318,9 @@ export function cueStartUp(
   script: string,
 ): CreateStartUpPageContainer {
   return new CreateStartUpPageContainer({
-    containerTotalNum: 6,
+    containerTotalNum: 7,
     textObject: [
+      inputCell(),
       topCell(ID.now, NAME.now, TOP.now, now),
       topCell(ID.elapsed, NAME.elapsed, TOP.elapsed, elapsed),
       topCell(ID.countdown, NAME.countdown, TOP.countdown, countdown),
@@ -315,7 +346,8 @@ export function cueStartUp(
         //
         // 箭頭欄的內容行數是固定的（見 lines.ts 的 cursorColumn），
         // 沒有可捲動的空間，韌體攔到事件也捲不動任何東西。
-        isEventCapture: 1,
+        // 事件交給 inputCell()（見上方說明）
+        isEventCapture: 0,
         content: cursor,
       }),
       new TextContainerProperty({
