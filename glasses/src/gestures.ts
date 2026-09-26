@@ -73,11 +73,14 @@ export function routeGesture(g: number, ctx: GestureContext): GestureAction {
     case LONG_PRESS:
       return prev(ctx)
 
-    // 箭頭已在第一行還往上滑＝想回上一張
+    // 戒指模式：上滑＝上一張、下滑＝下一步（有動畫先播動畫），箭頭交給語音跟隨。
+    // 舊規則「箭頭在第一行才翻頁」讓上一頁要連滑好幾下，實機感覺像戒指不靈敏（2026-09-27）。
     case SWIPE_UP:
+      if (ctx.live && ctx.mode === 'ring') return 'sendPrev'
       return ctx.cursorLine === 0 ? prev(ctx) : 'cursorUp'
 
     case SWIPE_DOWN:
+      if (ctx.live && ctx.mode === 'ring') return 'sendNext'
       return 'cursorDown'
 
     case CLICK:

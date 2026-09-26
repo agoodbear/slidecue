@@ -35,11 +35,15 @@ check('戒指模式長按 → Keynote 上一張', routeGesture(LONG_PRESS, ctx()
 check('自己翻模式長按 → 不動作（Keynote 當家）', routeGesture(LONG_PRESS, ctx({ mode: 'manual' })) === 'none')
 check('離線長按 → 快取上一張', routeGesture(LONG_PRESS, ctx({ live: false })) === 'localPrev')
 
-check('上滑、不在第一行 → 箭頭上移', routeGesture(SWIPE_UP, ctx()) === 'cursorUp')
+check('戒指模式上滑、不在第一行 → Keynote 上一張', routeGesture(SWIPE_UP, ctx()) === 'sendPrev')
+check('自己翻模式上滑、不在第一行 → 箭頭上移', routeGesture(SWIPE_UP, ctx({ mode: 'manual' })) === 'cursorUp')
+check('離線上滑、不在第一行 → 箭頭上移', routeGesture(SWIPE_UP, ctx({ live: false })) === 'cursorUp')
 check('上滑、已在第一行、戒指模式 → Keynote 上一張', routeGesture(SWIPE_UP, ctx({ cursorLine: 0 })) === 'sendPrev')
 check('上滑、已在第一行、自己翻模式 → 不動作', routeGesture(SWIPE_UP, ctx({ cursorLine: 0, mode: 'manual' })) === 'none')
 check('上滑、已在第一行、離線 → 快取上一張', routeGesture(SWIPE_UP, ctx({ cursorLine: 0, live: false })) === 'localPrev')
-check('下滑 → 箭頭下移（不翻頁）', routeGesture(SWIPE_DOWN, ctx()) === 'cursorDown')
+check('戒指模式下滑 → Keynote 下一步', routeGesture(SWIPE_DOWN, ctx()) === 'sendNext')
+check('自己翻模式下滑 → 箭頭下移', routeGesture(SWIPE_DOWN, ctx({ mode: 'manual' })) === 'cursorDown')
+check('離線下滑 → 箭頭下移', routeGesture(SWIPE_DOWN, ctx({ live: false })) === 'cursorDown')
 
 check('未知手勢 → 不動作', routeGesture(42, ctx()) === 'none')
 

@@ -129,9 +129,9 @@ const zh: Strings = {
 
   secFollow: '語音跟隨',
   followLabel: '邊念邊讓箭頭自己往下走',
-  followNoteOff: '用眼鏡的麥克風聽你念到哪裡。關著的時候，箭頭靠手勢上下滑動。',
-  followNoteOn: '眼鏡麥克風已開啟。念稿時箭頭會自己跟著走，手勢仍然可以隨時接手。',
-  followError: m => `⚠︎ ${m}。箭頭改用手勢上下滑動。`,
+  followNoteOff: '用眼鏡的麥克風聽你念到哪裡。關著的時候，「我自己翻」模式可用上下滑移動箭頭；R1 戒指模式的上下滑是翻頁。',
+  followNoteOn: '眼鏡麥克風已開啟。念稿時箭頭會自己跟著走。',
+  followError: m => `⚠︎ ${m}。語音跟隨暫停，箭頭停在原地。`,
   followMicFailed: '眼鏡麥克風打不開',
   followDownloading: p => `正在下載辨識模型… ${p}%（約 141 MB，只會下載這一次）`,
   followFirstUse: '第一次開啟時會下載辨識模型，約 141 MB。下載完成後才會開始跟隨。',
@@ -139,7 +139,7 @@ const zh: Strings = {
   secMode: '翻頁方式',
   modeManual: '我自己翻',
   modeRing: 'R1 戒指',
-  modeNoteRing: '單擊戒指翻頁，Keynote 會跟著動；Spotlight 或鍵盤也照常能翻。',
+  modeNoteRing: '戒指下滑（或單擊）＝下一步，有動畫會先播動畫；上滑＝上一張。箭頭交給語音跟隨。Spotlight 或鍵盤也照常能翻。',
   modeNoteManual: '用簡報器或鍵盤翻 Keynote，鏡片上的講稿自動跟上。',
 
   secDuration: '演講時長',
@@ -192,9 +192,9 @@ const en: Strings = {
 
   secFollow: 'Voice Follow',
   followLabel: 'Move the cue arrow as you speak',
-  followNoteOff: 'Uses the glasses microphone to track which line you are reading. While off, move the arrow by swiping.',
-  followNoteOn: 'Microphone on. The arrow follows as you speak; swiping still takes over at any time.',
-  followError: m => `⚠︎ ${m}. Use swipe to move the arrow instead.`,
+  followNoteOff: 'Uses the glasses microphone to track which line you are reading. While off, swipe to move the arrow in Manual mode; in R1 ring mode swipes turn slides.',
+  followNoteOn: 'Microphone on. The arrow follows as you speak.',
+  followError: m => `⚠︎ ${m}. Voice Follow paused; the arrow stays where it is.`,
   followMicFailed: 'Could not open the glasses microphone',
   followDownloading: p => `Downloading the recognition model… ${p}% (about 141 MB, one time only)`,
   followFirstUse: 'The first time you turn this on, a 141 MB recognition model is downloaded. Following starts once it finishes.',
@@ -202,7 +202,7 @@ const en: Strings = {
   secMode: 'Slide control',
   modeManual: 'I advance slides',
   modeRing: 'R1 ring',
-  modeNoteRing: 'Tap the ring to advance Keynote. Your clicker or keyboard still works too.',
+  modeNoteRing: 'Swipe down (or tap) the ring to advance — builds play first; swipe up for the previous slide. Voice Follow moves the arrow. Your clicker or keyboard still works too.',
   modeNoteManual: 'Advance Keynote with your clicker or keyboard; the script on the lens follows.',
 
   secDuration: 'Talk length',

@@ -470,6 +470,8 @@ async function handleControl(msg: ControlMessage): Promise<void> {
     return
   }
 
+  // 每一下都記「收到→Keynote 做完」的耗時，才分得出是戒指漏送還是這邊慢
+  const t0 = Date.now()
   const snap = await snapshot(pinnedDeck)
   if (!snap.open || !snap.playing) {
     log(`忽略 ${msg.action}：Keynote 尚未開始播放`)
@@ -487,6 +489,7 @@ async function handleControl(msg: ControlMessage): Promise<void> {
   else await retreat(snap.slide, pinnedDeck)
 
   await pushStateToAll(true)
+  log(`戒指 ${msg.action === 'next' ? '下一步' : '上一張'}：從第 ${snap.slide} 張，${Date.now() - t0} ms`)
 }
 
 /** 重新讀取整份講稿。換檔或使用者要求重同步時呼叫。 */
