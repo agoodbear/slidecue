@@ -103,7 +103,6 @@ export const ID = {
   cursor: 6,
   elapsed: 7,
   countdown: 8,
-  input: 9,
 } as const
 
 export const NAME = {
@@ -115,32 +114,7 @@ export const NAME = {
   cursor: 'cursor',
   elapsed: 'elapsed',
   countdown: 'countdown',
-  input: 'input',
 } as const
-
-/**
- * 專門接手勢的隱形底層：鋪滿全螢幕、內容只有一個空白、最先宣告所以畫在最底下。
- *
- * 為什麼不直接掛在箭頭欄：isEventCapture 的容器被滑動時，韌體會自己「捲一下再彈回」，
- * 就算高度貼齊內容也還是會晃。2026-09-27 實測戒指上下滑翻頁時箭頭跟著抖，
- * 而同一段時間箭頭欄一次都沒被重繪——抖的是韌體，不是我們。
- * 官方文件的做法（display 頁「Image-first apps」）就是墊一個空白全螢幕容器收事件，
- * 它晃了也看不到。每頁上限 8 個非圖片容器，這裡用到 7 個。
- */
-function inputLayer(): TextContainerProperty {
-  return new TextContainerProperty({
-    xPosition: 0,
-    yPosition: 0,
-    width: SCREEN_W,
-    height: SCREEN_H,
-    paddingLength: 0,
-    borderWidth: 0,
-    containerID: ID.input,
-    containerName: NAME.input,
-    isEventCapture: 1,
-    content: ' ',
-  })
-}
 
 /** 選單頁：標題 + 選項清單。模式選擇與時長選擇共用這個版型。 */
 export function menuPage(title: string, items: string[]): CreateStartUpPageContainer {
@@ -212,7 +186,7 @@ function listBlock(items: string[]): ListContainerProperty {
 /**
  * 提詞主畫面。
  *
- * 七個容器：三段時間各自一欄（帶邊框分隔）、右上頁碼、左側箭頭欄、講稿，外加最底層收手勢的隱形層。
+ * 六個容器：三段時間各自一欄（帶邊框分隔）、右上頁碼、左側箭頭欄、其餘給講稿。
  *
  * 時間拆成三個容器而不是一行字，是因為 G2 沒有底線屬性
  * （實測組合字元 U+0332 也畫不出線），只有容器邊框能在單行高度內做出分隔；
@@ -227,9 +201,8 @@ export function cuePage(
   script: string,
 ): RebuildPageContainer {
   return new RebuildPageContainer({
-    containerTotalNum: 7,
+    containerTotalNum: 6,
     textObject: [
-      inputLayer(),
       topCell(ID.now, NAME.now, TOP.now, now),
       topCell(ID.elapsed, NAME.elapsed, TOP.elapsed, elapsed),
       topCell(ID.countdown, NAME.countdown, TOP.countdown, countdown),
@@ -244,8 +217,18 @@ export function cuePage(
         borderWidth: 0,
         containerID: ID.cursor,
         containerName: NAME.cursor,
-        // 事件交給 inputLayer()。掛在這裡時，每次滑動韌體都會讓箭頭欄晃一下。
-        isEventCapture: 0,
+        // ⚠️ 不要改成「全螢幕空白隱形層收事件」：v1.24.0 試過（官方 display 文件的 image-first 做法），
+        // 實機戒指上下滑與按壓都明顯變不靈敏（2026-09-27），已退回。代價是滑動時箭頭會被韌體晃一下。
+        //
+        // ⚠️ 事件必須掛在箭頭欄，不能掛在講稿欄。
+        //
+        // 掛在講稿欄時，韌體會把滑動當成「捲動這個容器」而自己動起來，
+        // 於是講稿在畫面上跟著手指晃，卻完全不經過我們的程式——
+        // 實測講稿容器只重繪 2 次，畫面卻一直在動，就是這個原因。
+        //
+        // 箭頭欄的內容行數是固定的（見 lines.ts 的 cursorColumn），
+        // 沒有可捲動的空間，韌體攔到事件也捲不動任何東西。
+        isEventCapture: 1,
         content: cursor,
       }),
       new TextContainerProperty({
@@ -305,9 +288,8 @@ export function cueStartUp(
   script: string,
 ): CreateStartUpPageContainer {
   return new CreateStartUpPageContainer({
-    containerTotalNum: 7,
+    containerTotalNum: 6,
     textObject: [
-      inputLayer(),
       topCell(ID.now, NAME.now, TOP.now, now),
       topCell(ID.elapsed, NAME.elapsed, TOP.elapsed, elapsed),
       topCell(ID.countdown, NAME.countdown, TOP.countdown, countdown),
@@ -322,8 +304,18 @@ export function cueStartUp(
         borderWidth: 0,
         containerID: ID.cursor,
         containerName: NAME.cursor,
-        // 事件交給 inputLayer()。掛在這裡時，每次滑動韌體都會讓箭頭欄晃一下。
-        isEventCapture: 0,
+        // ⚠️ 不要改成「全螢幕空白隱形層收事件」：v1.24.0 試過（官方 display 文件的 image-first 做法），
+        // 實機戒指上下滑與按壓都明顯變不靈敏（2026-09-27），已退回。代價是滑動時箭頭會被韌體晃一下。
+        //
+        // ⚠️ 事件必須掛在箭頭欄，不能掛在講稿欄。
+        //
+        // 掛在講稿欄時，韌體會把滑動當成「捲動這個容器」而自己動起來，
+        // 於是講稿在畫面上跟著手指晃，卻完全不經過我們的程式——
+        // 實測講稿容器只重繪 2 次，畫面卻一直在動，就是這個原因。
+        //
+        // 箭頭欄的內容行數是固定的（見 lines.ts 的 cursorColumn），
+        // 沒有可捲動的空間，韌體攔到事件也捲不動任何東西。
+        isEventCapture: 1,
         content: cursor,
       }),
       new TextContainerProperty({
