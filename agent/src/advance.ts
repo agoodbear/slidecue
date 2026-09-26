@@ -16,37 +16,9 @@
  *   兩者都可能只是鎖定螢幕造成，所以每次翻頁都重新嘗試，不快取結果。
  */
 
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { showSlide, activeKeynoteId } from './keynote.ts'
-
-const run = promisify(execFile)
-/**
- * ⚠️ 不要在這裡硬編 bundle id。
- *
- * 這支檔案原本寫死 `com.apple.iWork.Keynote`（舊版），但 `keynote.ts` 是
- * **動態追蹤**目前開著文件的是哪一版（2026 起的 Creator Studio 版 bundle id
- * 是 `com.apple.Keynote`）。兩邊不一致的後果是：使用者用新版 Keynote 時，
- * 讀頁碼與講稿都正常，但 R1 戒指要翻頁時卻對著**沒有開文件的舊版**送指令，
- * 於是翻頁靜默失效——而且只在戒指模式才會發作，自己按鍵完全正常，很難聯想。
- */
+import { showSlide, showNextAndRead } from './keynote.ts'
 
 export type AdvanceMethod = 'showNext' | 'keystroke' | 'jump' | 'none'
-
-async function osa(script: string): Promise<string> {
-  const { stdout } = await run('osascript', ['-e', script], { encoding: 'utf8' })
-  return stdout.replace(/\n$/, '')
-}
-
-/** 嘗試 show next，成功回傳 true。 */
-async function tryShowNext(): Promise<boolean> {
-  try {
-    await osa(`tell application id "${activeKeynoteId()}" to show next`)
-    return true
-  } catch {
-    return false
-  }
-}
 
 /**
  * 往下一頁（或下一個動畫構件）。每次都由好到壞依序嘗試，回傳實際用上的手段。
@@ -59,13 +31,18 @@ async function tryShowNext(): Promise<boolean> {
  * show next 若失敗會丟錯（例如 -1708），所以「沒報錯＝成功」在這裡是可靠的；
  * 不能用頁碼驗收，因為播放一個構件時頁碼本來就不會變。
  */
-export async function advance(current: number, total: number, pinned: string | null = null): Promise<AdvanceMethod> {
-  if (await tryShowNext()) return 'showNext'
+export async function advance(
+  current: number, total: number, pinned: string | null = null,
+): Promise<{ method: AdvanceMethod; slide: number }> {
+  // show next 與讀回張號在同一次 osascript 完成，省一趟 AppleEvent 來回
+  try {
+    return { method: 'showNext', slide: await showNextAndRead(pinned) }
+  } catch { /* 往下退到跳頁 */ }
   // 不退到 keystroke：合成按鍵被系統丟掉時不會報錯，戒指按了會毫無反應，
   // 比「跳頁略過動畫」更糟。show next 失敗就直接跳頁，至少一定有動。
-  if (current >= total) return 'jump'
+  if (current >= total) return { method: 'jump', slide: current }
   await showSlide(current + 1, pinned)
-  return 'jump'
+  return { method: 'jump', slide: current + 1 }
 }
 
 /**

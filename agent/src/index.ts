@@ -40,6 +40,24 @@ let deck: SlideScript[] = []
 let deckName = ''
 let mode: ControlMode = 'manual'
 let advanceMethod: AdvanceMethod = 'none'
+
+/**
+ * 輪詢最近一次讀到的 Keynote 狀態。戒指翻頁直接用它，不再先問一次 Keynote——
+ * 每問一次 AppleEvent 要 300–700 ms，這是舊版每按一下要 0.6–0.9 秒的主因。
+ */
+let lastSnap: KeynoteSnapshot | null = null
+let lastSnapAt = 0
+/** 戒指指令執行中：輪詢讓路，指令不必排在輪詢的 AppleEvent 後面。 */
+let commandBusy = false
+/** 每下一次指令就 +1。輪詢拿到的快照若跨過了指令，就是舊的，丟掉，免得鏡片閃回上一張。 */
+let commandGen = 0
+/** 指令一個接一個做，連按時順序才不會亂。 */
+let commandChain: Promise<void> = Promise.resolve()
+
+function rememberSnap(s: KeynoteSnapshot): void {
+  lastSnap = s
+  lastSnapAt = Date.now()
+}
 let lastBroadcast = ''
 
 /**
@@ -470,26 +488,55 @@ async function handleControl(msg: ControlMessage): Promise<void> {
     return
   }
 
-  // 每一下都記「收到→Keynote 做完」的耗時，才分得出是戒指漏送還是這邊慢
+  const action = msg.action
+  commandChain = commandChain.then(() => ringCommand(action)).catch(err => log(`戒指指令失敗：${errMsg(err)}`))
+}
+
+/**
+ * 執行一下戒指翻頁。
+ *
+ * 快的關鍵（2026-09-27，原本每下 0.6–0.9 秒）：
+ *  - 不先問 Keynote 第幾張，用輪詢留下的快照
+ *  - 上一張的結果一定是「目前減一」，先通知眼鏡換稿，再叫 Keynote 翻
+ *  - 下一步的指令與讀回張號合成一次 osascript（有動畫時張號不變，只能讀回）
+ *  - 執行時輪詢讓路
+ */
+async function ringCommand(action: 'next' | 'prev'): Promise<void> {
+  // 每一下都記「收到→做完」的耗時，才分得出是戒指漏送還是這邊慢
   const t0 = Date.now()
-  const snap = await snapshot(pinnedDeck)
+  const fresh = lastSnap && Date.now() - lastSnapAt < 1500 ? lastSnap : null
+  const snap = fresh ?? await snapshot(pinnedDeck)
   if (!snap.open || !snap.playing) {
-    log(`忽略 ${msg.action}：Keynote 尚未開始播放`)
+    log(`忽略 ${action}：Keynote 尚未開始播放`)
     return
   }
-
-  if (msg.action === 'next') {
-    const used = await advance(snap.slide, snap.total, pinnedDeck)
-    if (used !== advanceMethod) {
-      advanceMethod = used
-      log(`戒指翻頁手段：${describeMethod(used)}`)
-      broadcastInfo()
+  commandBusy = true
+  commandGen++
+  let shownAt = 0
+  try {
+    if (action === 'next') {
+      const { method, slide } = await advance(snap.slide, snap.total, pinnedDeck)
+      if (method !== advanceMethod) {
+        advanceMethod = method
+        log(`戒指翻頁手段：${describeMethod(method)}`)
+        broadcastInfo()
+      }
+      const after = { ...snap, slide: slide || snap.slide }
+      rememberSnap(after)
+      await pushStateToAll(true, after)
+      shownAt = Date.now()
+    } else {
+      if (snap.slide <= 1) return
+      const after = { ...snap, slide: snap.slide - 1 }
+      rememberSnap(after)
+      await pushStateToAll(true, after)     // 鏡片先換
+      shownAt = Date.now()
+      await retreat(snap.slide, pinnedDeck) // Keynote 隨後跟上
     }
+  } finally {
+    commandBusy = false
   }
-  else await retreat(snap.slide, pinnedDeck)
-
-  await pushStateToAll(true)
-  log(`戒指 ${msg.action === 'next' ? '下一步' : '上一張'}：從第 ${snap.slide} 張，${Date.now() - t0} ms`)
+  log(`戒指 ${action === 'next' ? '下一步' : '上一張'}：從第 ${snap.slide} 張，鏡片 ${shownAt - t0} ms，Keynote 完成 ${Date.now() - t0} ms${fresh ? '' : '（無快照，先問了一次）'}`)
 }
 
 /** 重新讀取整份講稿。換檔或使用者要求重同步時呼叫。 */
@@ -651,7 +698,12 @@ function describeMethod(m: AdvanceMethod): string {
 async function loop(): Promise<void> {
   for (;;) {
     try {
+      if (commandBusy) { await delay(30); continue }
+      const gen = commandGen
       let snap = await snapshot(pinnedDeck)
+      // 讀的途中戒指下了指令：這份快照可能是翻頁前的，丟掉重讀
+      if (gen !== commandGen || commandBusy) continue
+      rememberSnap(snap)
 
       // 已經跟著舊版，但現行版那邊也開了東西——切過去。
       // 沒有這一段的話會卡在舊版：`!snap.open` 永遠不成立，
@@ -699,7 +751,7 @@ async function loop(): Promise<void> {
         broadcastInfo()
       }
 
-      if (wss.clients.size > 0) await pushStateToAll(false, snap)
+      if (wss.clients.size > 0 && gen === commandGen && !commandBusy) await pushStateToAll(false, snap)
       await delay(snap.playing ? POLL_ACTIVE_MS : snap.open ? POLL_OPEN_MS : POLL_CLOSED_MS)
     } catch (err) {
       log(`輪詢錯誤: ${errMsg(err)}`)

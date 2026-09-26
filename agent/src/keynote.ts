@@ -210,6 +210,37 @@ export async function showSlide(n: number, pinned: string | null = null): Promis
 }
 
 /**
+ * 播放中「下一步」並在同一次 osascript 讀回目前張號。
+ *
+ * 戒指翻頁的延遲幾乎全花在跟 Keynote 的 AppleEvent 來回（每次 300–700 ms，
+ * 開一個 osascript 只要 60 ms）。把指令與讀回合成一次，省掉一整趟。
+ * 有動畫構件時 show next 只播一段、張號不變，所以不能事先猜，只能讀回。
+ *
+ * @returns 下一步之後的張號；失敗（例如 -1708 沒有視窗）丟錯
+ */
+export async function showNextAndRead(pinned: string | null = null): Promise<number> {
+  const pick = pinned
+    ? `
+      set d to front document
+      repeat with x in documents
+        if (name of x) is "${pinned.replace(/"/g, '\\"')}" then
+          set d to x
+          exit repeat
+        end if
+      end repeat`
+    : `
+      set d to front document`
+  const raw = await osa(`
+    tell application id "${activeApp}"
+      ${pick}
+      show next
+      return slide number of current slide of d
+    end tell
+  `)
+  return Number(raw) || 0
+}
+
+/**
  * 直接執行這支檔案時，對目前開著的 Keynote 做一次自我檢查。
  *
  * 包成 async IIFE 而不是頂層 await：打包成單一執行檔時走 CommonJS，
