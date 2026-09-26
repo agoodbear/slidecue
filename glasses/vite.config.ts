@@ -13,13 +13,33 @@
  */
 
 import { defineConfig } from 'vite'
-import { readFileSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 // 版本從 app.json 讀，不要另外維護一份——兩邊會漂掉，
 // 而診斷時「使用者跑的是哪一版」是第一個要確認的事實。
 const appVersion = JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8')).version
 
+/**
+ * public/ 裡只給開發探針用的檔案（audio-probe 的測試錄音 865 KB），
+ * vite 會原封複製進 dist，接著就被 evenhub pack 打進上架包。建置完刪掉。
+ */
+const DEV_ONLY = ['demo.json', 'demo.m4a']
+
 export default defineConfig({
+  plugins: [(() => {
+    let outDir = ''
+    return {
+      name: 'strip-dev-only',
+      apply: 'build' as const,
+      configResolved(c: { root: string; build: { outDir: string } }) {
+        outDir = resolve(c.root, c.build.outDir)
+      },
+      closeBundle() {
+        for (const f of DEV_ONLY) rmSync(resolve(outDir, f), { force: true })
+      },
+    }
+  })()],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },

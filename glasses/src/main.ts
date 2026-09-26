@@ -11,7 +11,7 @@
  * 連線斷掉時不會停擺：整份講稿事前已存進手機，會自動切到離線模式。
  */
 
-import { waitForEvenAppBridge, AudioInputSource, type EvenHubEvent, type TextContainerUpgrade } from '@evenrealities/even_hub_sdk'
+import { waitForEvenAppBridge, AudioInputSource, type TextContainerUpgrade } from '@evenrealities/even_hub_sdk'
 import { getTextWidth } from '@evenrealities/pretext'
 import type { AgentMessage, DeckState, DeckBundle, ControlMode } from './types.ts'
 import { wrapLines, cursorColumn, linesPerContainer, scrollToShow } from './lines.ts'
@@ -20,6 +20,7 @@ import { prettyHost } from './host.ts'
 import { setLang, detectLang, t, type Lang } from './i18n.ts'
 import { nowCell, elapsedCell, countdownCell } from './clock.ts'
 import { AgentLink } from './link.ts'
+import { gestureOf, routeGesture } from './gestures.ts'
 import { mountPhoneUi, updatePhoneStatus, updatePhoneSlide, updatePhoneProbe, updatePhoneFollow, updatePhoneDecks, updatePhoneModelDownload } from './phone.ts'
 import {
   cueStartUp, nowUpgrade, elapsedUpgrade, countdownUpgrade,
@@ -104,6 +105,7 @@ const link = new AgentLink({
   },
   // 連不上時，讓手機端看得到「試過哪些位址」——否則只有一片空白可看。
   onProbe: info => updatePhoneProbe(info.tried, info.found),
+  onRejected: () => updatePhoneStatus(false, bundle !== null, true),
   onConnectedChange: c => {
     const wasConnected = connected
     connected = c
@@ -124,6 +126,9 @@ const link = new AgentLink({
     if (wasConnected && !c) {
       // 剛斷線：從最後已知的頁碼接手，講者不會感覺到跳頁
       offlineSlide = deck?.slide ?? offlineSlide
+      // 清掉最後的線上狀態：斷線期間可能手動翻過，重連時就算 Keynote 回報
+      // 同一張，也必須當成「換頁」重畫，不然畫面會停在離線時翻到的那張
+      deck = null
       void renderAll()
     } else {
       void renderStatus()
@@ -185,27 +190,6 @@ if (follow) {
 }
 
 /**
- * 取出使用者手勢，兩個來源都要看。
- *
- * ⚠️ 真機與模擬器的事件來源不同：**真機把手勢放在 `sysEvent`，模擬器放在 `textEvent`**。
- * 只檢查其中一個的 app，在另一邊會完全收不到輸入——而且是靜默失敗，沒有任何錯誤。
- * 社群把這一條列為「works in sim, broken on hardware」的頭號原因。
- *
- * @returns OsEventTypeList 的手勢碼，或 null 表示這不是使用者手勢
- */
-function gestureOf(event: EvenHubEvent): number | null {
-  const sys = event.sysEvent
-
-  // 4 以上是系統事件（前景進出、異常斷線、系統退出），不是使用者手勢
-  if (sys?.eventType !== undefined && sys.eventType >= 4) return null
-
-  // protobuf 會把零值省略，所以 eventType 為 undefined 時代表單擊（0）
-  if (event.textEvent) return event.textEvent.eventType ?? 0
-  if (sys) return sys.eventType ?? 0
-  return null
-}
-
-/**
  * 開關眼鏡麥克風。
  *
  * 收音刻意用眼鏡而不是手機或筆電：講者會走動，而只有眼鏡永遠在臉上。
@@ -223,7 +207,7 @@ async function setFollow(on: boolean): Promise<void> {
       // 對著不會動的箭頭一直念，卻不知道問題出在哪。
       follow = false
       link.send({ type: 'follow', on: false })
-      updatePhoneFollow(false, '眼鏡麥克風打不開')
+      updatePhoneFollow(false, t().followMicFailed)
       return
     }
     // 開麥的當下把目前這張的斷行送過去，Mac 才有東西可以對齊
@@ -262,36 +246,31 @@ bridge.onEvenHubEvent(event => {
   lastGestureAt = Date.now()
   gestureCount++
 
-  // 雙擊代表離開。這是上架審核的必檢項目。
-  if (gesture === 3) {
-    void bridge.shutDownPageContainer(1)
-    return
-  }
-
-  if (gesture === 1) {
-    moveCursor(-1) // 上滑
-    return
-  }
-  if (gesture === 2) {
-    moveCursor(1) // 下滑
-    return
-  }
-  if (gesture === 0) {
-    onClick()
+  const action = routeGesture(gesture, {
+    live: live(),
+    mode,
+    cursorLine,
+    lineCount: lines.length,
+  })
+  switch (action) {
+    case 'exit': void bridge.shutDownPageContainer(1); break
+    case 'sendNext': link.send({ type: 'control', action: 'next' }); break
+    case 'sendPrev': link.send({ type: 'control', action: 'prev' }); break
+    case 'localNext': stepSlideLocal(1); break
+    case 'localPrev': stepSlideLocal(-1); break
+    case 'cursorUp': moveCursor(-1); break
+    case 'cursorDown': moveCursor(1); break
   }
 })
 
-/** 單擊的意義隨連線狀態與模式而不同。 */
-function onClick(): void {
-  if (!connected) {
-    // 離線：先把這張的講稿走完，再自己推進到下一張，
-    // 一個手勢就能走完全程，不必記得現在該滑還是該按。
-    if (cursorLine < lines.length - 1) moveCursor(1)
-    else stepSlideLocal(1)
-    return
-  }
-  if (mode === 'ring') link.send({ type: 'control', action: 'next' })
-  else moveCursor(1)
+/**
+ * 現在是不是「跟著 Keynote 走」。
+ *
+ * 光看 WebSocket 連著不夠：Keynote 在台上當掉或關檔時 agent 仍連著，
+ * 但送來的是 0 張——那時要跟斷線一樣改用手機裡的快取，手勢也照離線規則走。
+ */
+function live(): boolean {
+  return connected && deck !== null && deck.total > 0
 }
 
 /** 讀回上次的翻頁方式與演講時長。 */
@@ -355,9 +334,25 @@ function handleAgentMessage(msg: AgentMessage): void {
   }
 
   if (msg.type !== 'deck') return
+  lastElapsed = msg.elapsedSec
+
+  // Keynote 關檔或當掉：agent 仍連著但回報 0 張。改用手機快取接手，
+  // 不能把空講稿畫上去——頁碼走快取、講稿卻顯示「沒有講稿」只會讓講者更慌。
+  if (msg.total === 0) {
+    if (deck) {
+      offlineSlide = deck.slide
+      deck = null
+      setScript(bundle?.scripts[offlineSlide - 1] ?? '')
+      void renderAll()
+    } else {
+      void renderStatus()
+    }
+    updatePhoneSlide(0, 0, '')
+    return
+  }
+
   const prev = deck
   deck = msg
-  lastElapsed = msg.elapsedSec
 
   const slideChanged =
     !prev || prev.slide !== msg.slide || prev.deckName !== msg.deckName || prev.notes !== msg.notes
@@ -398,6 +393,8 @@ function moveCursor(delta: number): void {
   if (next < 0 || next >= lines.length) return
   cursorLine = next
   applyScroll()
+  // 語音跟隨開著時，讓 Mac 知道講者手動推過箭頭，對齊才會從新位置往前找
+  if (follow) link.send({ type: 'cursorAt', line: cursorLine })
 }
 
 /**
@@ -459,13 +456,14 @@ function buildNow(): string {
 
 /** 「授課」欄。 */
 function buildElapsed(): string {
-  return elapsedCell(connected ? (deck?.elapsedSec ?? 0) : lastElapsed)
+  // lastElapsed 每收到一則 deck 就更新；Keynote 關檔時 deck 會被清成 null，不能靠它
+  return elapsedCell(lastElapsed)
 }
 
 /** 「下課倒數」欄。 */
 function buildCountdown(): string {
   return countdownCell(
-    connected ? (deck?.elapsedSec ?? 0) : lastElapsed,
+    lastElapsed,
     durationMin,
     COUNTDOWN_TEXT_W,
   )

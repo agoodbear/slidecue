@@ -187,11 +187,23 @@ export async function allNotes(pinned: string | null = null): Promise<string[]> 
  * 已實測：播放中呼叫這支，Keynote 的 current slide 會確實更新，附註也同步正確。
  * 這是「由 R1 戒指主導翻頁」那條路徑的基礎。
  */
-export async function showSlide(n: number): Promise<void> {
+export async function showSlide(n: number, pinned: string | null = null): Promise<void> {
+  // 指定了某一份就對那一份下令，不然眼鏡看的是 A、翻的卻是最前面的 B
+  const pick = pinned
+    ? `
+      set d to front document
+      repeat with x in documents
+        if (name of x) is "${pinned.replace(/"/g, '\\"')}" then
+          set d to x
+          exit repeat
+        end if
+      end repeat`
+    : `
+      set d to front document`
   await osa(`
     tell application id "${activeApp}"
       if (count of documents) is 0 then return
-      set d to front document
+      ${pick}
       show slide ${Math.max(1, Math.floor(n))} of d
     end tell
   `)

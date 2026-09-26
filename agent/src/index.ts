@@ -11,12 +11,12 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, openSync, createWriteStream, renameSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, createWriteStream, renameSync, unlinkSync, readFileSync, writeFileSync, statSync, copyFileSync, truncateSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { networkInterfaces, hostname } from 'node:os'
 import { snapshot, allNotes, listDocuments, pickKeynote, activeKeynoteId, type KeynoteSnapshot } from './keynote.ts'
 import { buildDeck, type SlideScript } from './deck.ts'
-import { advance, retreat, probeAdvanceMethod, type AdvanceMethod } from './advance.ts'
+import { advance, retreat, type AdvanceMethod } from './advance.ts'
 import { AudioWindow, listenOnce, setWhisperEndpoint, whisperEndpoint } from './listen.ts'
 import type { DeckState, AgentInfo, DeckBundle, ControlMessage, ControlMode } from '../../glasses/src/types.ts'
 
@@ -87,6 +87,41 @@ let whisperChild: ReturnType<typeof spawn> | null = null
 let playStartedAt: number | null = null
 
 /**
+ * 計時起點落地到檔案。
+ *
+ * agent 若在台上被 launchd 重啟（2026-09 實機 log 有 3 次未捕捉錯誤致死），
+ * 記憶體裡的起點會歸零，下課倒數整場錯。重啟後若上次看到播放還在
+ * NEW_SESSION_GAP 之內，就接回原本的起點——跟「誤按 Esc 馬上回去播」同一個規則。
+ */
+const STATE_FILE = `${process.env.HOME}/Library/Application Support/SlideCue/timer.json`
+let timerSavedAt = 0
+
+function saveTimer(force = false): void {
+  const now = Date.now()
+  if (!force && now - timerSavedAt < 5000) return
+  timerSavedAt = now
+  try {
+    mkdirSync(dirname(STATE_FILE), { recursive: true })
+    writeFileSync(STATE_FILE, JSON.stringify({ playStartedAt, lastPlayingSeen, mode }))
+  } catch { /* 寫不進去只是少了重啟保護，不該影響上台 */ }
+}
+
+function restoreTimer(): void {
+  try {
+    const t = JSON.parse(readFileSync(STATE_FILE, 'utf8')) as { playStartedAt?: number | null; lastPlayingSeen?: number; mode?: ControlMode }
+    // 存檔每 5 秒一次，所以容許的空窗要把這 5 秒加回去
+    if (t.playStartedAt && t.lastPlayingSeen && Date.now() - t.lastPlayingSeen < NEW_SESSION_GAP_MS + 5000) {
+      playStartedAt = t.playStartedAt
+      // 已判定是同一場：把「上次看到播放」拉到現在，免得 syncTimer 的 30 秒門檻
+      // 因為存檔延遲而把剛接回的起點又重設掉
+      lastPlayingSeen = Date.now()
+      if (t.mode === 'ring' || t.mode === 'manual') mode = t.mode
+      log(`接回重啟前的計時（已講 ${elapsedSec()} 秒）`)
+    }
+  } catch { /* 沒有存檔就是新的一場 */ }
+}
+
+/**
  * Mac 在區網裡的穩定名稱。
  *
  * os.hostname() 在 macOS 上有時已經帶了 .local，直接再接一次會變成 .local.local，
@@ -99,7 +134,8 @@ let playStartedAt: number | null = null
  * 企業網段、iPhone 熱點固定的 172.20.10），**真正因人而異的只有最後一段**。
  * 手機端把這個數字套進常見網段一起競速即可（見 glasses/src/host.ts）。
  *
- * 走預設路由的那張介面才是手機連得到的位址——直接抓 en0 在切到熱點時會拿到過期值。
+ * 取第一張非 VPN、非回送、非 Tailscale 的 IPv4 介面。多張網卡同時連著時
+ * （例如 Wi-Fi 加有線）不一定是預設路由那張——連不上時請改輸入完整 IP。
  */
 function connectCode(): string | null {
   for (const [name, addrs] of Object.entries(networkInterfaces())) {
@@ -208,6 +244,18 @@ const LOCK_PEER = process.env.SLIDECUE_LOCK_PEER !== '0'
 const PEER_RELEASE_MS = 60_000
 let trustedPeer: string | null = null
 let trustedGoneAt = 0
+/** 眼鏡全部離線後，延遲關閉語音跟隨的計時器。 */
+let followOffTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 這個 IP 現在還有幾條開著的連線（不含 except）。 */
+function openFrom(peer: string, except?: WebSocket): number {
+  let n = 0
+  for (const c of wss.clients) {
+    if (c === except) continue
+    if ((c as WebSocket & { peer?: string }).peer === peer && c.readyState === WebSocket.OPEN) n++
+  }
+  return n
+}
 
 wss.on('connection', (ws, req) => {
   const peer = req.socket.remoteAddress ?? '?'
@@ -215,7 +263,9 @@ wss.on('connection', (ws, req) => {
   if (LOCK_PEER) {
     const now = Date.now()
     // 信任的裝置離線夠久了就放開，換網路的人才不會被鎖在門外
-    if (trustedPeer && trustedGoneAt && now - trustedGoneAt > PEER_RELEASE_MS) {
+    // 信任的裝置只要還有任何一條連線開著，就不算離線——
+    // Wi-Fi 抖動後舊的半開連線常比新連線晚關，不能拿「某一條關了」當離線。
+    if (trustedPeer && trustedGoneAt && now - trustedGoneAt > PEER_RELEASE_MS && openFrom(trustedPeer) === 0) {
       log(`「${trustedPeer}」已離線超過一分鐘，解除鎖定`)
       trustedPeer = null
     }
@@ -242,7 +292,8 @@ wss.on('connection', (ws, req) => {
   }
 
   log(`眼鏡端已連線：${peer}（目前 ${wss.clients.size} 條連線）`)
-  void pushState(ws)
+  if (followOffTimer) { clearTimeout(followOffTimer); followOffTimer = null }
+  pushState(ws).catch(err => log(`送出現況失敗：${errMsg(err)}`))
   pushInfo(ws)
   pushBundle(ws)
 
@@ -253,11 +304,22 @@ wss.on('connection', (ws, req) => {
     } catch {
       return
     }
-    void handleControl(msg)
+    handleControl(msg).catch(err => log(`處理 ${msg.type} 失敗：${errMsg(err)}`))
   })
 
   ws.on('close', () => {
-    if (LOCK_PEER && peer === trustedPeer) trustedGoneAt = Date.now()
+    // 同一台還有別條連線開著就不起算——只有全部斷光才算離線
+    if (LOCK_PEER && peer === trustedPeer && openFrom(peer, ws) === 0) trustedGoneAt = Date.now()
+    // 眼鏡全部離開（例如雙擊退出 app）時，語音跟隨沒人要了，把 1.7 GB 的模型收掉
+    // 但不是一斷就關：Wi-Fi 抖一下、心跳自斷重連都會短暫歸零，每次都卸載重載模型
+    // 會讓語音跟隨失效好一陣子。離線滿兩分鐘才收。
+    if (wss.clients.size === 0 && following) {
+      if (followOffTimer) clearTimeout(followOffTimer)
+      followOffTimer = setTimeout(() => {
+        followOffTimer = null
+        if (wss.clients.size === 0 && following) stopFollowing('眼鏡端離線超過兩分鐘')
+      }, 120_000)
+    }
     log(`眼鏡端已離線：${peer}（剩 ${wss.clients.size} 條連線）`)
   })
   ws.on('error', err => log(`連線錯誤: ${(err as Error).message}`))
@@ -332,11 +394,6 @@ async function handleControl(msg: ControlMessage): Promise<void> {
   if (msg.type === 'mode') {
     mode = msg.mode
     log(`翻頁模式切換為：${mode === 'ring' ? 'R1 戒指主控' : '自己翻（Spotlight／鍵盤）'}`)
-    // 切到戒指模式時才需要知道怎麼翻頁，這時候現場探測一次
-    if (mode === 'ring') {
-      advanceMethod = await probeAdvanceMethod()
-      log(`翻頁手段探測結果：${describeMethod(advanceMethod)}`)
-    }
     broadcastInfo()
     return
   }
@@ -351,21 +408,17 @@ async function handleControl(msg: ControlMessage): Promise<void> {
   }
 
   if (msg.type === 'follow') {
-    following = msg.on
-    if (!following) {
-      audioWindow.reset()
-      audioSeen = false
-      quietRounds = 0
-      // 關掉就把模型卸載。留著只是白佔記憶體。
-      whisperChild?.kill()
-      whisperChild = null
-      setWhisperEndpoint(null)
+    if (!msg.on) {
+      stopFollowing('眼鏡端關閉')
+      broadcastInfo()
+      return
     }
-    log(`語音跟隨：${following ? '開啟' : '關閉'}`)
+    following = true
+    log('語音跟隨：開啟')
     // 辨識模型常駐要吃 1.7 GB，而語音跟隨多數場合根本不會開。
     // 所以拖到真的要用才載入——第一次開啟會等幾十秒，
     // 那段時間箭頭照樣可以用手勢推，不影響上台。
-    if (following && !whisperEndpoint()) void ensureWhisper()
+    if (!whisperEndpoint()) void ensureWhisper()
     broadcastInfo()
     return
   }
@@ -376,6 +429,12 @@ async function handleControl(msg: ControlMessage): Promise<void> {
     await refreshDeck(true)
     await pushStateToAll(true)
     broadcastInfo()
+    return
+  }
+
+  if (msg.type === 'cursorAt') {
+    // 講者用手勢推了箭頭。對齊要從新位置往前找，否則語音會把箭頭拉回舊處。
+    if (msg.line >= 0 && msg.line < followLines.length) followCursor = msg.line
     return
   }
 
@@ -411,14 +470,21 @@ async function handleControl(msg: ControlMessage): Promise<void> {
     return
   }
 
-  const snap = await snapshot()
+  const snap = await snapshot(pinnedDeck)
   if (!snap.open || !snap.playing) {
     log(`忽略 ${msg.action}：Keynote 尚未開始播放`)
     return
   }
 
-  if (msg.action === 'next') await advance(advanceMethod, snap.slide, snap.total)
-  else await retreat(snap.slide)
+  if (msg.action === 'next') {
+    const used = await advance(snap.slide, snap.total, pinnedDeck)
+    if (used !== advanceMethod) {
+      advanceMethod = used
+      log(`戒指翻頁手段：${describeMethod(used)}`)
+      broadcastInfo()
+    }
+  }
+  else await retreat(snap.slide, pinnedDeck)
 
   await pushStateToAll(true)
 }
@@ -489,9 +555,11 @@ function syncTimer(playing: boolean): void {
     log('開始計時')
     // 開播是重讀講稿最好的時機：講者常在上台前臨時改附註，
     // 而那種修改往往不會改變張數，光靠「張數變了」偵測不到。
-    void refreshDeck(true)
+    refreshDeck(true).catch(err => log(`開播重讀講稿失敗：${errMsg(err)}`))
+    saveTimer(true)
   }
   lastPlayingSeen = now
+  saveTimer()
 }
 
 /**
@@ -501,13 +569,14 @@ function syncTimer(playing: boolean): void {
  * 新連線就會「吃掉」一次廣播機會，害既有連線漏掉那次變化。
  */
 async function pushState(ws: WebSocket): Promise<void> {
-  const snap = await snapshot()
+  const snap = await snapshot(pinnedDeck)
   syncTimer(snap.playing)
   send(ws, currentState(snap))
 }
 
-async function pushStateToAll(force = false): Promise<void> {
-  const snap = await snapshot()
+async function pushStateToAll(force = false, known?: KeynoteSnapshot): Promise<void> {
+  // 輪詢迴圈已經問過一次就直接用，不要每 250ms 多開一個 osascript
+  const snap = known ?? await snapshot(pinnedDeck)
   syncTimer(snap.playing)
   const state = currentState(snap)
   // 秒數放進去重鍵，計時器才會每秒動一次；毫秒級的變化不需要送。
@@ -571,7 +640,7 @@ function describeMethod(m: AdvanceMethod): string {
     case 'showNext': return 'show next（保留動畫）'
     case 'keystroke': return '模擬右方向鍵（保留動畫）'
     case 'jump': return '直接跳頁（會略過動畫）'
-    default: return '尚未探測'
+    default: return '尚未使用'
   }
 }
 
@@ -614,7 +683,8 @@ async function loop(): Promise<void> {
 
       // 開關簡報時才重新列一次清單。這一步每多一份文件就多一次
       // AppleScript 來回，不該進高頻輪詢。
-      if (snap.docCount !== lastDocCount) {
+      // 數量沒變但換了一份（關 A 開 B）時清單也要更新
+      if (snap.docCount !== lastDocCount || (snap.open && !documents.some(d => d.name === snap.name))) {
         lastDocCount = snap.docCount
         documents = snap.docCount > 0 ? await listDocuments() : []
         // 被點名的那一份關掉了就退回自動，不要卡在一個不存在的簡報上
@@ -626,10 +696,10 @@ async function loop(): Promise<void> {
         broadcastInfo()
       }
 
-      if (wss.clients.size > 0) await pushStateToAll()
+      if (wss.clients.size > 0) await pushStateToAll(false, snap)
       await delay(snap.playing ? POLL_ACTIVE_MS : snap.open ? POLL_OPEN_MS : POLL_CLOSED_MS)
     } catch (err) {
-      log(`輪詢錯誤: ${(err as Error).message}`)
+      log(`輪詢錯誤: ${errMsg(err)}`)
       await delay(2000)
     }
   }
@@ -637,6 +707,34 @@ async function loop(): Promise<void> {
 
 function delay(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
+}
+
+/**
+ * 錯誤訊息只留最後一行。
+ *
+ * osascript 失敗時 message 會夾帶整段 AppleScript 原文，每次十幾行；
+ * 輪詢錯誤一多，log 就膨脹到上百 MB（2026-09 實測 115MB）。真正有用的只有 execution error 那行。
+ */
+function errMsg(err: unknown): string {
+  const m = err instanceof Error ? err.message : String(err)
+  const lines = m.split('\n').map(l => l.trim()).filter(Boolean)
+  return lines.find(l => l.includes('execution error')) ?? lines[lines.length - 1] ?? m
+}
+
+/**
+ * log 太大就輪替。launchd 以 append 模式開檔，所以截斷後繼續寫是安全的。
+ * 保留一份 .1 當上一輪的紀錄。
+ */
+const LOG_FILE = `${process.env.HOME}/Library/Logs/slidecue/agent.log`
+const LOG_MAX_BYTES = 20 * 1024 * 1024
+
+function rotateLog(): void {
+  try {
+    if (statSync(LOG_FILE).size < LOG_MAX_BYTES) return
+    copyFileSync(LOG_FILE, `${LOG_FILE}.1`)
+    truncateSync(LOG_FILE, 0)
+    log('log 超過 20 MB，已輪替到 agent.log.1')
+  } catch { /* 沒有這個檔（例如在終端機直接跑）就不用管 */ }
 }
 
 function log(msg: string): void {
@@ -740,7 +838,36 @@ async function ensureModel(): Promise<string | null> {
  * whisper-server 與它的函式庫都包在 app 裡（約 5 MB），使用者不必安裝任何東西。
  * 只有模型是按需下載的。
  */
-async function ensureWhisper(): Promise<void> {
+/**
+ * 關掉語音跟隨並卸載模型。
+ *
+ * 集中在一處：眼鏡關開關、眼鏡全部離線，兩條路都要走同一套清理。
+ */
+function stopFollowing(reason: string): void {
+  following = false
+  audioWindow.reset()
+  audioSeen = false
+  quietRounds = 0
+  whisperChild?.kill()
+  whisperChild = null
+  setWhisperEndpoint(null)
+  log(`語音跟隨：關閉（${reason}）`)
+}
+
+/**
+ * 同一時間只准一個準備流程。
+ *
+ * 沒有這道閘門時，下載模型途中關掉再打開跟隨，會有兩條下載同時寫同一個
+ * .part，改名後留下壞模型；也會起兩個 whisper-server、只追蹤到最後一個。
+ */
+let whisperStarting: Promise<void> | null = null
+
+function ensureWhisper(): Promise<void> {
+  whisperStarting ??= startWhisper().finally(() => { whisperStarting = null })
+  return whisperStarting
+}
+
+async function startWhisper(): Promise<void> {
   const fromEnv = process.env.SLIDECUE_WHISPER
   if (fromEnv) {
     setWhisperEndpoint(fromEnv)
@@ -764,6 +891,9 @@ async function ensureWhisper(): Promise<void> {
   const whisperLog = openSync(`${logDir}/whisper.log`, 'a')
   const port = await freePort()
 
+  // 準備期間使用者已經關掉跟隨的話，就不要起一個沒人用的 1.7 GB 程序
+  if (!following) return
+  whisperChild?.kill()
   const child = spawn(bin, [
     '-m', model, '--port', String(port), '-l', 'zh', '-t', '4', '--no-timestamps',
   ], { stdio: ['ignore', whisperLog, whisperLog], detached: false })
@@ -773,16 +903,18 @@ async function ensureWhisper(): Promise<void> {
     log(`語音辨識未啟用（whisper-server 起不來：${err.message}）`)
     setWhisperEndpoint(null)
   })
-  process.on('exit', () => child.kill())
 
   const url = `http://127.0.0.1:${port}`
   for (let i = 0; i < 120; i++) {
     await delay(500)
+    // 等待期間被關掉或換掉了：立刻退出，讓下一次 ensureWhisper 能重新起一個
+    if (whisperChild !== child) return
     try {
       const ctl = new AbortController()
       const t = setTimeout(() => ctl.abort(), 800)
       await fetch(`${url}/`, { signal: ctl.signal })
       clearTimeout(t)
+      if (whisperChild !== child) return   // 等待期間被關掉或換掉了
       setWhisperEndpoint(url)
       log(`語音辨識就緒：${url}`)
       return
@@ -819,12 +951,23 @@ function freePort(): Promise<number> {
   })
 }
 
+// 最後一道網：任何漏接的 Promise 錯誤只記 log，不讓整個 agent 死掉。
+// Node 22 預設遇到 unhandled rejection 會直接結束程序，台上等於斷線加計時歸零。
+process.on('unhandledRejection', err => log(`未捕捉的錯誤（已攔下）：${errMsg(err)}`))
+process.on('exit', () => whisperChild?.kill())
+
+rotateLog()
+setInterval(rotateLog, 60 * 60 * 1000).unref()
+// 心跳：眼鏡端靠它判斷連線是否已死（手機掉 Wi-Fi 時 close 事件可能晚幾十秒才來）
+setInterval(() => broadcast({ type: 'hb' }), 5000)
+restoreTimer()
+
 httpServer.listen(PORT, '0.0.0.0')
 
 log(`SlideCue agent 已啟動，監聽 :${PORT}`)
-// mDNS 名稱不隨網路改變——換去手機熱點、換一間會議室都還是這個位址。
-// IP 會變，這個不會，所以眼鏡端優先試它。
-// 手機端只要這三位數就能找到這台電腦——它會把數字套進常見網段一起試。
+// 眼鏡端找電腦的順序：上次成功的位址 → 使用者輸入的連線碼（套進常見網段一起試）。
+// 下面印出的 mDNS 名稱與 IP 是給人手動輸入或排錯用的，眼鏡端不會自己去猜。
+// 手機端只要這三位數就能找到這台電腦——要講者上台前打完整 IP 是不合理的。
 // 要一位講者在上台前打完整的 192.168.1.50 是不合理的。
 const code = connectCode()
 if (code) {

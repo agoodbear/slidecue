@@ -106,7 +106,12 @@ export interface CursorState {
   heard: string
 }
 
-export type AgentMessage = DeckState | AgentInfo | DeckBundle | CursorState
+/** agent 每 5 秒一次的心跳，讓眼鏡端能自己判斷連線是否已死。 */
+export interface Heartbeat {
+  type: 'hb'
+}
+
+export type AgentMessage = DeckState | AgentInfo | DeckBundle | CursorState | Heartbeat
 
 /** 眼鏡端送回 Mac agent 的指令。 */
 export type ControlMessage =
@@ -133,6 +138,11 @@ export type ControlMessage =
   | { type: 'audio'; pcm: string; sampleRate?: number }
   /** 開關語音跟隨。關掉時 Mac 端會停止轉錄，省電也省 BLE 頻寬。 */
   | { type: 'follow'; on: boolean }
+  /**
+   * 講者用手勢移動了箭頭。Mac 端的語音對齊要從這裡往前找，
+   * 否則下一輪辨識會把箭頭拉回手勢之前的位置。
+   */
+  | { type: 'cursorAt'; line: number }
   /** 眼鏡端的繪製耗時統計，回報給 Mac 記進 log 以便調校。 */
   | { type: 'stats'; text: string }
   /** 點名要跟哪一份 Keynote；傳 null 代表回到自動。 */

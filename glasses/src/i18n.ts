@@ -39,6 +39,8 @@ interface Strings {
   offline: string
   disconnected: string
   hintNotConnected: string
+  /** agent 只服務另一台裝置，拒絕了這支手機。 */
+  hintRejected: string
   hintFound: (host: string) => string
   hintSearching: (list: string) => string
   waitingKeynote: string
@@ -74,6 +76,8 @@ interface Strings {
   secMode: string
   modeManual: string
   modeRing: string
+  modeNoteRing: string
+  modeNoteManual: string
 
   secDuration: string
   durationNote: string
@@ -99,6 +103,7 @@ const zh: Strings = {
   offline: '離線（使用已存講稿）',
   disconnected: '未連線',
   hintNotConnected: '請在電腦上啟動 SlideCue，並確認手機與電腦連著同一個 Wi-Fi。',
+  hintRejected: '電腦上的 SlideCue 目前只服務另一台裝置。等一分鐘讓它放開，或在電腦上重新啟動 SlideCue。',
   hintFound: h => `已連上：${h}`,
   hintSearching: list => `找不到電腦。試過：${list}`,
   waitingKeynote: '等待 Keynote 開始播放',
@@ -134,10 +139,12 @@ const zh: Strings = {
   secMode: '翻頁方式',
   modeManual: '我自己翻',
   modeRing: 'R1 戒指',
+  modeNoteRing: '單擊戒指翻頁，Keynote 會跟著動；Spotlight 或鍵盤也照常能翻。',
+  modeNoteManual: '用簡報器或鍵盤翻 Keynote，鏡片上的講稿自動跟上。',
 
   secDuration: '演講時長',
   durationNote: '用來在鏡片上顯示下課倒數。最後五分鐘會出現進度條。',
-  durationOff: '不用',
+  durationOff: '不倒數',
   durationMin: n => `${n} 分`,
 
   secLang: '語言',
@@ -159,6 +166,7 @@ const en: Strings = {
   offline: 'Offline (using saved notes)',
   disconnected: 'Not connected',
   hintNotConnected: 'Start SlideCue on your computer, and make sure both are on the same Wi-Fi.',
+  hintRejected: 'SlideCue on your computer is serving another device. Wait a minute for it to release, or restart SlideCue on the computer.',
   hintFound: h => `Connected to ${h}`,
   hintSearching: list => `Computer not found. Tried: ${list}`,
   waitingKeynote: 'Waiting for Keynote to start',
@@ -194,6 +202,8 @@ const en: Strings = {
   secMode: 'Slide control',
   modeManual: 'I advance slides',
   modeRing: 'R1 ring',
+  modeNoteRing: 'Tap the ring to advance Keynote. Your clicker or keyboard still works too.',
+  modeNoteManual: 'Advance Keynote with your clicker or keyboard; the script on the lens follows.',
 
   secDuration: 'Talk length',
   durationNote: 'Shows a countdown on the lens. A progress bar appears in the final five minutes.',

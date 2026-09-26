@@ -56,6 +56,15 @@ let deckNote: HTMLElement
 let hostInput: HTMLInputElement
 let hostNote: HTMLElement
 
+/**
+ * 最後一次收到的狀態。切換語言會整個重掛畫面，重掛後要把這些補畫回去，
+ * 否則連線狀態會退回「連線中」、簡報清單變空、跟隨開關回到初始值。
+ */
+let lastStatus: { connected: boolean; hasCache: boolean; rejected: boolean } | null = null
+let lastSlide: [number, number, string] | null = null
+let lastDecks: [Array<{ name: string; slides: number }>, string | null, string] | null = null
+let lastFollow: [boolean, string | undefined] | null = null
+
 /** 建立手機端畫面。回傳後即可用 update* 函式更新狀態。 */
 export function mountPhoneUi(initial: PhoneSettings, h: PhoneHandlers): void {
   handlers = h
@@ -186,7 +195,15 @@ export function mountPhoneUi(initial: PhoneSettings, h: PhoneHandlers): void {
       if (l === getLang()) return
       setLang(l)
       handlers.onLangChange(l)
-      mountPhoneUi({ ...initial, mode, durationMin: currentDuration, lang: l }, h)
+      mountPhoneUi({
+        ...initial,
+        mode,
+        durationMin: currentDuration,
+        lang: l,
+        follow: followToggle.checked,
+        host: hostInput.value.trim() || null,
+      }, h)
+      restoreState()
     })
   })
 
@@ -196,7 +213,7 @@ export function mountPhoneUi(initial: PhoneSettings, h: PhoneHandlers): void {
   const chips = app.querySelector('#durChips')!
   for (const m of DURATION_CHOICES) {
     const b = document.createElement('button')
-    b.textContent = m === 0 ? '不倒數' : `${m} 分`
+    b.textContent = m === 0 ? t().durationOff : t().durationMin(m)
     b.dataset.min = String(m)
     b.addEventListener('click', () => {
       setDurationActive(m)
@@ -215,9 +232,7 @@ function setModeActive(m: ControlMode): void {
   })
   const note = document.querySelector('#modeNote')
   if (note) {
-    note.textContent = mode === 'ring'
-      ? '按戒指翻頁，Keynote 會跟著動，手完全不用碰電腦。'
-      : '用簡報器或鍵盤翻 Keynote，鏡片上的講稿自動跟上。'
+    note.textContent = mode === 'ring' ? t().modeNoteRing : t().modeNoteManual
   }
 }
 
@@ -229,11 +244,23 @@ function setDurationActive(min: number): void {
 }
 
 /** 更新連線狀態。 */
-export function updatePhoneStatus(connected: boolean, hasCache: boolean): void {
+export function updatePhoneStatus(connected: boolean, hasCache: boolean, rejected = false): void {
+  lastStatus = { connected, hasCache, rejected }
   if (!statusDot) return
   statusDot.className = 'dot ' + (connected ? 'ok' : hasCache ? 'warn' : 'off')
   statusText.textContent = connected ? t().connected : hasCache ? t().offline : t().disconnected
-  hintText.textContent = connected ? '' : t().hintNotConnected
+  // 被 agent 拒絕（它鎖定了另一台）要講清楚，否則使用者只會看到「請啟動 SlideCue」，
+  // 可是電腦上明明開著。
+  hintText.textContent = connected ? '' : rejected ? t().hintRejected : t().hintNotConnected
+}
+
+/** 語言切換重掛後，把最後的狀態補畫回去。 */
+function restoreState(): void {
+  if (lastStatus) updatePhoneStatus(lastStatus.connected, lastStatus.hasCache, lastStatus.rejected)
+  if (lastSlide) updatePhoneSlide(...lastSlide)
+  if (lastDecks) updatePhoneDecks(...lastDecks)
+  // 錯誤訊息是切換前的語言，不重播；只還原開關狀態
+  if (lastFollow) updatePhoneFollow(lastFollow[0])
 }
 
 /**
@@ -268,6 +295,7 @@ export function updatePhoneDecks(
   pinned: string | null,
   active: string,
 ): void {
+  lastDecks = [docs, pinned, active]
   if (!deckList) return
 
   if (docs.length === 0) {
@@ -321,6 +349,7 @@ export function updatePhoneModelDownload(percent: number | null): void {
 }
 
 export function updatePhoneFollow(on: boolean, error?: string): void {
+  lastFollow = [on, error]
   if (!followToggle) return
   followToggle.checked = on
   followNote.textContent = error
@@ -330,6 +359,7 @@ export function updatePhoneFollow(on: boolean, error?: string): void {
 
 /** 更新目前投影片與講稿摘要。 */
 export function updatePhoneSlide(slide: number, total: number, notes: string): void {
+  lastSlide = [slide, total, notes]
   if (!slideText) return
   slideText.textContent = total > 0
     ? t().slideOf(slide, total,

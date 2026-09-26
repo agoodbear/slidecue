@@ -13,11 +13,13 @@
  * 所以這裡改成平行競速：同時對所有可能的位址開連線，誰先握手成功就用誰，
  * 其餘立刻關掉。使用者不必知道 IP，換網路也不必重設。
  *
- * 候選位址的順序即偏好順序：
+ * 候選位址的順序即偏好順序（見 buildCandidates）：
  *   1. 上次成功的位址——同一個場地第二次開，幾乎都是它
- *   2. mDNS `.local` 名稱——同區網有效，且**換 WiFi、換熱點都不會變**
- *   3. Tailscale 位址——連不同網路也通，代價是手機也要登入同一個 tailnet
- *   4. `location.hostname`——dev server 那條老路，保留著才不會回頭壞掉
+ *   2. 使用者輸入的連線碼／位址——三位數會展開成多個常見網段一起試
+ *   3. `location.hostname`——dev server 那條老路，保留著才不會回頭壞掉
+ *
+ * 不寫死 mDNS 名稱或 Tailscale 位址：商店發布的是同一份 bundle，
+ * 寫死等於把開發者的網路資訊發給所有人。
  */
 
 import type { AgentMessage, ControlMessage, ControlMode } from './types.ts'
@@ -31,6 +33,15 @@ const RETRY_MAX_MS = 5000
 
 /** 競速探測的等待上限。超過這個時間沒人接，就當這一輪全滅。 */
 const PROBE_TIMEOUT_MS = 2500
+
+/**
+ * 多久沒收到 agent 任何訊息就判定連線已死。
+ *
+ * 手機掉 Wi-Fi 時，iOS 可能要幾十秒才讓 WebSocket 報 close，那段時間鏡片凍住、
+ * 卻不顯示「■ 離線」。agent 每 5 秒送一次心跳，15 秒沒聲音就自己斷開重連。
+ * 只有「這條連線上收過心跳」才啟用——舊版 agent 不送心跳，不能因此每 15 秒斷一次。
+ */
+const DEAD_AFTER_MS = 15_000
 
 /**
  * 組出這一輪要競速的候選位址。
@@ -67,6 +78,8 @@ export interface LinkHandlers {
   onHostFound?: (url: string) => void
   /** 探測進度，給手機端顯示——連不上時使用者至少看得到它試過哪些位址。 */
   onProbe?: (info: { tried: string[]; found: string | null }) => void
+  /** agent 拒絕了這台裝置（它鎖定了另一台）。 */
+  onRejected?: () => void
 }
 
 export class AgentLink {
@@ -92,10 +105,45 @@ export class AgentLink {
   /** 使用者輸入的連線碼或完整位址。null 代表只靠記住的位址。 */
   private code: string | null = null
 
+  /** 這條連線最後一次收到訊息的時間，與是否收過心跳。 */
+  private lastMsgAt = 0
+  private sawHeartbeat = false
+  private watchdog: ReturnType<typeof setInterval> | null = null
+
   constructor(handlers: LinkHandlers, remembered: string | null = null, code: string | null = null) {
     this.handlers = handlers
     this.known = remembered
     this.code = code
+
+    // 手機解鎖、app 回到前景時立刻重連，不必等退避計時器
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible' || this.closed) return
+        // 剛回前景時排隊的訊息還沒處理，給心跳一個完整的寬限期，免得誤判連線已死
+        this.lastMsgAt = Date.now()
+        if (this.ws?.readyState === WebSocket.OPEN) return
+        this.retry = RETRY_MIN_MS
+        void this.connect()
+      })
+    }
+  }
+
+  /** 連線已死但 close 事件遲遲不來：自己拆掉，照斷線流程走。 */
+  private drop(ws: WebSocket): void {
+    if (this.ws !== ws) return
+    ws.onclose = null
+    ws.onmessage = null
+    ws.onerror = null
+    try { ws.close() } catch { /* 已經壞了就算了 */ }
+    this.ws = null
+    this.stopWatchdog()
+    this.handlers.onConnectedChange(false)
+    this.scheduleRetry()
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdog) clearInterval(this.watchdog)
+    this.watchdog = null
   }
 
   /**
@@ -213,9 +261,25 @@ export class AgentLink {
     if (this.pendingMode) this.setMode(this.pendingMode)
     this.send({ type: 'control', action: 'resync' })
 
+    this.lastMsgAt = Date.now()
+    this.sawHeartbeat = false
+    this.stopWatchdog()
+    this.watchdog = setInterval(() => {
+      if (this.sawHeartbeat && Date.now() - this.lastMsgAt > DEAD_AFTER_MS) {
+        console.warn('[link] 心跳逾時，判定連線已死')
+        this.drop(ws)
+      }
+    }, 3000)
+
     ws.onmessage = ev => {
+      this.lastMsgAt = Date.now()
       try {
-        this.handlers.onMessage(JSON.parse(String(ev.data)) as AgentMessage)
+        const msg = JSON.parse(String(ev.data)) as AgentMessage
+        if (msg.type === 'hb') {
+          this.sawHeartbeat = true
+          return
+        }
+        this.handlers.onMessage(msg)
       } catch (err) {
         // 壞掉的封包直接丟掉，不要讓台上的畫面因此中斷
         console.warn('[link] 封包解析失敗', err)
@@ -225,7 +289,14 @@ export class AgentLink {
     ws.onclose = ev => {
       console.log('[link] 連線關閉', ev.code, ev.reason)
       this.ws = null
+      this.stopWatchdog()
       this.handlers.onConnectedChange(false)
+      // 1008＝agent 只服務另一台裝置。要讓使用者知道，否則只會看到「請啟動 SlideCue」
+      if (ev.code === 1008) {
+        this.handlers.onRejected?.()
+        // 被拒絕時不要用最短間隔一直敲門：agent 每次都記一筆「拒絕」，log 會膨脹
+        this.retry = RETRY_MAX_MS
+      }
       this.scheduleRetry()
     }
 
@@ -272,6 +343,7 @@ export class AgentLink {
 
   close(): void {
     this.closed = true
+    this.stopWatchdog()
     if (this.retryTimer) clearTimeout(this.retryTimer)
     this.ws?.close()
   }

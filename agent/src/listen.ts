@@ -143,7 +143,9 @@ export async function transcribe(pcm: Buffer, script: string, sampleRate = SAMPL
   form.append('temperature', '0')
   if (script) form.append('prompt', script.slice(0, 800))
 
-  const res = await fetch(`${endpoint}/inference`, { method: 'POST', body: form })
+  // 一定要有逾時：whisper-server 卡住時沒有上限的話，呼叫端的「辨識中」旗標
+  // 永遠不會放開，箭頭整場不動，只能關掉跟隨重開。正常一輪約 0.6 秒。
+  const res = await fetch(`${endpoint}/inference`, { method: 'POST', body: form, signal: AbortSignal.timeout(10_000) })
   if (!res.ok) return ''
   const data = (await res.json()) as { text?: string }
   return (data.text ?? '').trim()
