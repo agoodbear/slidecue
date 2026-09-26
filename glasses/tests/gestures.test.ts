@@ -47,5 +47,21 @@ check('離線下滑 → 箭頭下移', routeGesture(SWIPE_DOWN, ctx({ live: fals
 
 check('未知手勢 → 不動作', routeGesture(42, ctx()) === 'none')
 
+
+// ── 戒指操作三種模式（2026-09-27）──
+const R = (ringInput: 'swipe' | 'press' | 'both', o: Partial<GestureContext> = {}) => ctx({ ringInput, ...o })
+check('手勢模式：下滑 → 下一步', routeGesture(SWIPE_DOWN, R('swipe')) === 'sendNext')
+check('手勢模式：上滑 → 上一張', routeGesture(SWIPE_UP, R('swipe')) === 'sendPrev')
+check('手勢模式：單擊 → 不動作', routeGesture(CLICK, R('swipe')) === 'none')
+check('手勢模式：長按 → 不動作', routeGesture(LONG_PRESS, R('swipe')) === 'none')
+check('按鍵模式：單擊 → 下一步', routeGesture(CLICK, R('press')) === 'sendNext')
+check('按鍵模式：長按 → 上一張', routeGesture(LONG_PRESS, R('press')) === 'sendPrev')
+check('按鍵模式：下滑 → 箭頭下移', routeGesture(SWIPE_DOWN, R('press')) === 'cursorDown')
+check('按鍵模式：上滑 → 箭頭上移', routeGesture(SWIPE_UP, R('press')) === 'cursorUp')
+check('混合模式：四種都翻頁', routeGesture(SWIPE_DOWN, R('both')) === 'sendNext' && routeGesture(SWIPE_UP, R('both')) === 'sendPrev' && routeGesture(CLICK, R('both')) === 'sendNext' && routeGesture(LONG_PRESS, R('both')) === 'sendPrev')
+check('混合模式：雙擊仍是離開', routeGesture(DOUBLE_CLICK, R('both')) === 'exit')
+check('按鍵模式但離線：單擊走離線規則', routeGesture(CLICK, R('press', { live: false })) === 'cursorDown')
+check('自己翻模式不受戒指設定影響', routeGesture(CLICK, R('both', { mode: 'manual' })) === 'cursorDown')
+
 console.log(`\n結果: ${pass} 通過 / ${fail} 失敗\n`)
 process.exit(fail > 0 ? 1 : 0)

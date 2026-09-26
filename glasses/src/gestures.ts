@@ -7,7 +7,7 @@
  */
 
 import type { EvenHubEvent } from '@evenrealities/even_hub_sdk'
-import type { ControlMode } from './types.ts'
+import type { ControlMode, RingInput } from './types.ts'
 
 /** OsEventTypeList 的手勢碼。 */
 export const CLICK = 0
@@ -31,6 +31,8 @@ export interface GestureContext {
   /** 連著 agent 且 Keynote 有開著簡報。否則走離線快取。 */
   live: boolean
   mode: ControlMode
+  /** 戒指模式的翻頁手勢，省略時視為 'swipe'。 */
+  ringInput?: RingInput
   cursorLine: number
   lineCount: number
 }
@@ -62,6 +64,17 @@ function prev(ctx: GestureContext): GestureAction {
   return ctx.mode === 'ring' ? 'sendPrev' : 'none'
 }
 
+/** 連著 Keynote 且在戒指模式。 */
+function ringLive(ctx: GestureContext): boolean {
+  return ctx.live && ctx.mode === 'ring'
+}
+function usesSwipe(ctx: GestureContext): boolean {
+  return (ctx.ringInput ?? 'swipe') !== 'press'
+}
+function usesPress(ctx: GestureContext): boolean {
+  return (ctx.ringInput ?? 'swipe') !== 'swipe'
+}
+
 export function routeGesture(g: number, ctx: GestureContext): GestureAction {
   switch (g) {
     // 雙擊代表離開。這是上架審核的必檢項目，不能拿去做別的。
@@ -70,19 +83,20 @@ export function routeGesture(g: number, ctx: GestureContext): GestureAction {
 
     // 長按＝回上一張。雙擊已經被「離開」佔走，所以回上一張只能用長按。
     // ⚠️ 戒指／鏡腿實機會不會送長按尚待驗證，所以另外保留「第一行再上滑」這條路。
-    // 戒指模式只認上下滑（2026-09-27 Bear 實測：單擊＋長按＋滑動混用容易亂），長按不動作。
+    // 長按＝上一張，只在戒指模式選了「按鍵」或「混合」時生效
     case LONG_PRESS:
-      if (ctx.live && ctx.mode === 'ring') return 'none'
+      if (ringLive(ctx)) return usesPress(ctx) ? 'sendPrev' : 'none'
       return prev(ctx)
 
-    // 戒指模式：上滑＝上一張、下滑＝下一步（有動畫先播動畫），箭頭交給語音跟隨。
+    // 戒指模式選「手勢」或「混合」：上滑＝上一張、下滑＝下一步（有動畫先播動畫），不看箭頭在哪一行。
     // 舊規則「箭頭在第一行才翻頁」讓上一頁要連滑好幾下，實機感覺像戒指不靈敏（2026-09-27）。
+    // 選「按鍵」時上下滑改回移動箭頭。
     case SWIPE_UP:
-      if (ctx.live && ctx.mode === 'ring') return 'sendPrev'
+      if (ringLive(ctx)) return usesSwipe(ctx) ? 'sendPrev' : 'cursorUp'
       return ctx.cursorLine === 0 ? prev(ctx) : 'cursorUp'
 
     case SWIPE_DOWN:
-      if (ctx.live && ctx.mode === 'ring') return 'sendNext'
+      if (ringLive(ctx)) return usesSwipe(ctx) ? 'sendNext' : 'cursorDown'
       return 'cursorDown'
 
     case CLICK:
@@ -91,8 +105,8 @@ export function routeGesture(g: number, ctx: GestureContext): GestureAction {
         // 一個手勢就能走完全程，不必記得現在該滑還是該按。
         return ctx.cursorLine < ctx.lineCount - 1 ? 'cursorDown' : 'localNext'
       }
-      // 戒指模式單擊不動作：翻頁只認上下滑
-      return ctx.mode === 'ring' ? 'none' : 'cursorDown'
+      if (ctx.mode === 'ring') return usesPress(ctx) ? 'sendNext' : 'none'
+      return 'cursorDown'
 
     default:
       return 'none'

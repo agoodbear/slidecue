@@ -11,6 +11,14 @@ export type ControlMode =
   /** 自己翻：Keynote 當家（Spotlight／鍵盤），眼鏡跟著走 */
   | 'manual'
 
+/**
+ * 戒指模式下用哪種手勢翻頁（使用者在手機設定頁選）。
+ * - swipe：上滑＝上一張、下滑＝下一步（預設；實測最不容易按錯）
+ * - press：單擊＝下一步、長按＝上一張；上下滑移動箭頭
+ * - both：兩種都認
+ */
+export type RingInput = 'swipe' | 'press' | 'both'
+
 /** Keynote 目前狀態的快照，由 Mac agent 推送。 */
 export interface DeckState {
   type: 'deck'

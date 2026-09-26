@@ -13,7 +13,7 @@
 
 import { waitForEvenAppBridge, AudioInputSource, type TextContainerUpgrade } from '@evenrealities/even_hub_sdk'
 import { getTextWidth } from '@evenrealities/pretext'
-import type { AgentMessage, DeckState, DeckBundle, ControlMode } from './types.ts'
+import type { AgentMessage, DeckState, DeckBundle, ControlMode, RingInput } from './types.ts'
 import { wrapLines, cursorColumn, linesPerContainer, scrollToShow } from './lines.ts'
 import { coalesce } from './coalesce.ts'
 import { prettyHost } from './host.ts'
@@ -36,6 +36,8 @@ const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '
 const LINES_PER_PAGE = linesPerContainer(SCRIPT_H, 6)
 
 const STORAGE_MODE = 'slidecue.mode'
+/** 戒指模式的翻頁手勢（手勢／按鍵／混合）。 */
+const STORAGE_RING_INPUT = 'slidecue.ringInput'
 const STORAGE_DURATION = 'slidecue.duration'
 const STORAGE_BUNDLE = 'slidecue.bundle'
 /** 上次連上的 agent 位址。記住它，下次開場第一發就命中。 */
@@ -61,6 +63,8 @@ const bridge = await waitForEvenAppBridge()
 
 /** 預設「自己翻」——多數人用簡報器，這樣第一次開就能直接用。 */
 let mode: ControlMode = 'manual'
+/** 預設只認上下滑：實測單擊、長按、滑動混用最容易按錯。 */
+let ringInput: RingInput = 'swipe'
 let durationMin = 0
 let connected = false
 let deck: DeckState | null = null
@@ -143,7 +147,7 @@ const result = await bridge.createStartUpPageContainer(
 if (result !== 0) console.error('建立啟動頁失敗，代碼：', result)
 
 // ── 手機端：狀態與設定 ────────────────────────────────────────
-mountPhoneUi({ mode, durationMin, follow, lang, host: connectCode ?? prettyHost(rememberedHost) }, {
+mountPhoneUi({ mode, ringInput, durationMin, follow, lang, host: connectCode ?? prettyHost(rememberedHost) }, {
   onFollowChange: on => void setFollow(on),
   onDeckChange: name => link.send({ type: 'pickDeck', name }),
   // 切換語言後鏡片要立刻跟著換，不能等下一次翻頁。
@@ -169,6 +173,10 @@ mountPhoneUi({ mode, durationMin, follow, lang, host: connectCode ?? prettyHost(
     mode = m
     void bridge.setLocalStorage(STORAGE_MODE, m)
     link.setMode(m)
+  },
+  onRingInputChange: r => {
+    ringInput = r
+    void bridge.setLocalStorage(STORAGE_RING_INPUT, r)
   },
   onDurationChange: min => {
     durationMin = min
@@ -249,6 +257,7 @@ bridge.onEvenHubEvent(event => {
   const action = routeGesture(gesture, {
     live: live(),
     mode,
+    ringInput,
     cursorLine,
     lineCount: lines.length,
   })
@@ -278,6 +287,8 @@ async function loadSettings(): Promise<void> {
   try {
     const m = await bridge.getLocalStorage(STORAGE_MODE)
     if (m === 'ring' || m === 'manual') mode = m
+    const ri = await bridge.getLocalStorage(STORAGE_RING_INPUT)
+    if (ri === 'swipe' || ri === 'press' || ri === 'both') ringInput = ri
     const d = await bridge.getLocalStorage(STORAGE_DURATION)
     const n = Number(d)
     if (Number.isFinite(n) && n >= 0) durationMin = n

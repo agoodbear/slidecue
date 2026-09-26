@@ -78,6 +78,13 @@ interface Strings {
   modeRing: string
   modeNoteRing: string
   modeNoteManual: string
+  secRingInput: string
+  ringSwipe: string
+  ringPress: string
+  ringBoth: string
+  ringNoteSwipe: string
+  ringNotePress: string
+  ringNoteBoth: string
 
   secDuration: string
   durationNote: string
@@ -139,8 +146,15 @@ const zh: Strings = {
   secMode: '翻頁方式',
   modeManual: '我自己翻',
   modeRing: 'R1 戒指',
-  modeNoteRing: '戒指下滑＝下一步（有動畫會先播動畫），上滑＝上一張，只認上下滑。箭頭交給語音跟隨。Spotlight 或鍵盤也照常能翻。',
+  modeNoteRing: '用戒指翻 Keynote，有動畫會先播動畫。Spotlight 或鍵盤也照常能翻。',
   modeNoteManual: '用簡報器或鍵盤翻 Keynote，鏡片上的講稿自動跟上。',
+  secRingInput: '戒指操作',
+  ringSwipe: '手勢',
+  ringPress: '按鍵',
+  ringBoth: '混合',
+  ringNoteSwipe: '上滑＝上一張，下滑＝下一步。箭頭交給語音跟隨。',
+  ringNotePress: '按一下＝下一步，長按＝上一張。上下滑移動箭頭。',
+  ringNoteBoth: '上滑／長按＝上一張，下滑／按一下＝下一步，兩種都能用。',
 
   secDuration: '演講時長',
   durationNote: '用來在鏡片上顯示下課倒數。最後五分鐘會出現進度條。',
@@ -202,8 +216,15 @@ const en: Strings = {
   secMode: 'Slide control',
   modeManual: 'I advance slides',
   modeRing: 'R1 ring',
-  modeNoteRing: 'Swipe down on the ring to advance — builds play first; swipe up for the previous slide. Only swipes turn slides. Voice Follow moves the arrow. Your clicker or keyboard still works too.',
+  modeNoteRing: 'The ring turns Keynote; builds play first. Your clicker or keyboard still works too.',
   modeNoteManual: 'Advance Keynote with your clicker or keyboard; the script on the lens follows.',
+  secRingInput: 'Ring controls',
+  ringSwipe: 'Swipe',
+  ringPress: 'Press',
+  ringBoth: 'Both',
+  ringNoteSwipe: 'Swipe up for the previous slide, down to advance. Voice Follow moves the arrow.',
+  ringNotePress: 'Tap to advance, long-press for the previous slide. Swipe to move the arrow.',
+  ringNoteBoth: 'Swipe up or long-press for previous; swipe down or tap to advance.',
 
   secDuration: 'Talk length',
   durationNote: 'Shows a countdown on the lens. A progress bar appears in the final five minutes.',

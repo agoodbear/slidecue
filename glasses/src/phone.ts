@@ -13,12 +13,14 @@
  *   #3CFA44 是鏡片綠，只准出現在 G2 顯示上，phone UI 不能用
  */
 
-import type { ControlMode } from './types.ts'
+import type { ControlMode, RingInput } from './types.ts'
 import { prettyHost } from './host.ts'
 import { t, getLang, setLang, type Lang } from './i18n.ts'
 
 export interface PhoneSettings {
   mode: ControlMode
+  /** 戒指模式的翻頁手勢 */
+  ringInput: RingInput
   durationMin: number
   follow: boolean
   /** 介面語言。鏡片上的字也跟著這個走。 */
@@ -29,6 +31,7 @@ export interface PhoneSettings {
 
 export interface PhoneHandlers {
   onModeChange: (mode: ControlMode) => void
+  onRingInputChange: (input: RingInput) => void
   onDurationChange: (min: number) => void
   onFollowChange: (on: boolean) => void
   /** 使用者點名要跟哪一份簡報；null 代表回到自動。 */
@@ -44,6 +47,7 @@ const DURATION_CHOICES = [0, 15, 20, 30, 45, 50, 60, 90, 120]
 let handlers: PhoneHandlers
 /** 重新掛載（切換語言）時要沿用目前的選擇，不能退回初始值。 */
 let mode: ControlMode = 'manual'
+let ringInput: RingInput = 'swipe'
 let currentDuration = 0
 let statusDot: HTMLElement
 let statusText: HTMLElement
@@ -69,6 +73,7 @@ let lastFollow: [boolean, string | undefined] | null = null
 export function mountPhoneUi(initial: PhoneSettings, h: PhoneHandlers): void {
   handlers = h
   mode = initial.mode
+  ringInput = initial.ringInput
   currentDuration = initial.durationMin
   setLang(initial.lang)
   injectStyles()
@@ -99,6 +104,15 @@ export function mountPhoneUi(initial: PhoneSettings, h: PhoneHandlers): void {
           <button data-mode="ring">${t().modeRing}</button>
         </div>
         <p class="note" id="modeNote"></p>
+        <div id="ringBox">
+          <h3>${t().secRingInput}</h3>
+          <div class="seg" id="ringSeg">
+            <button data-ring="swipe">${t().ringSwipe}</button>
+            <button data-ring="press">${t().ringPress}</button>
+            <button data-ring="both">${t().ringBoth}</button>
+          </div>
+          <p class="note" id="ringNote"></p>
+        </div>
       </section>
 
       <section class="card">
@@ -160,6 +174,14 @@ export function mountPhoneUi(initial: PhoneSettings, h: PhoneHandlers): void {
       handlers.onModeChange(mode)
     })
   })
+  // 戒指操作（只在選了 R1 戒指時顯示）
+  app.querySelector('#ringSeg')!.querySelectorAll<HTMLButtonElement>('button').forEach(b => {
+    b.addEventListener('click', () => {
+      const r = b.dataset.ring as RingInput
+      setRingActive(r)
+      handlers.onRingInputChange(r)
+    })
+  })
   hostInput = app.querySelector('#hostInput') as HTMLInputElement
   hostNote = app.querySelector('#hostNote') as HTMLElement
   hostInput.value = initial.host ?? ''
@@ -198,6 +220,7 @@ export function mountPhoneUi(initial: PhoneSettings, h: PhoneHandlers): void {
       mountPhoneUi({
         ...initial,
         mode,
+        ringInput,
         durationMin: currentDuration,
         lang: l,
         follow: followToggle.checked,
@@ -207,6 +230,7 @@ export function mountPhoneUi(initial: PhoneSettings, h: PhoneHandlers): void {
     })
   })
 
+  setRingActive(initial.ringInput)
   setModeActive(initial.mode)
 
   // 演講時長
@@ -234,6 +258,17 @@ function setModeActive(m: ControlMode): void {
   if (note) {
     note.textContent = mode === 'ring' ? t().modeNoteRing : t().modeNoteManual
   }
+  const box = document.querySelector<HTMLElement>('#ringBox')
+  if (box) box.style.display = mode === 'ring' ? '' : 'none'
+}
+
+function setRingActive(r: RingInput): void {
+  ringInput = r
+  document.querySelector('#ringSeg')?.querySelectorAll<HTMLButtonElement>('button').forEach(b => {
+    b.classList.toggle('on', b.dataset.ring === r)
+  })
+  const note = document.querySelector('#ringNote')
+  if (note) note.textContent = r === 'press' ? t().ringNotePress : r === 'both' ? t().ringNoteBoth : t().ringNoteSwipe
 }
 
 function setDurationActive(min: number): void {
@@ -413,6 +448,7 @@ function injectStyles(): void {
 
     .card { background: var(--surface); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
     .card h2 { margin: 0 0 12px; font-size: 16px; font-weight: 500; }
+    .card h3 { margin: 16px 0 10px; font-size: 14px; font-weight: 500; }
 
     .status .row { display: flex; align-items: center; gap: 8px; }
     .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--off); flex: none; }
