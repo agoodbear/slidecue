@@ -37,6 +37,8 @@ const LINES_PER_PAGE = linesPerContainer(SCRIPT_H, 6)
 
 /** 診斷 log 用的手勢名稱。放在檔案前段：事件可能在模組跑完前就進來，放後面會踩 TDZ。 */
 const GESTURE_NAME: Record<number, string> = { 0: '單擊', 1: '上滑', 2: '下滑', 3: '雙擊', 9: '長按' }
+/** 頁碼格暫時改顯示「請用滑的」提示，到這個時間為止。放前段理由同 GESTURE_NAME。 */
+let swipeHintUntil = 0
 const STORAGE_MODE = 'slidecue.mode'
 /** 戒指模式的翻頁手勢（手勢／按鍵／混合）。 */
 const STORAGE_RING_INPUT = 'slidecue.ringInput'
@@ -268,6 +270,9 @@ bridge.onEvenHubEvent(event => {
   const src = event.sysEvent ? `sys${event.sysEvent.eventType ?? 0}` : `text${event.textEvent?.eventType ?? 0}`
   link.send({ type: 'stats', text: `手勢 ${GESTURE_NAME[gesture] ?? gesture}（${src}）→ ${action}｜${mode}/${ringInput}/${live() ? 'live' : 'offline'}` })
 
+  // 提示期間成功滑了一下：頁碼要立刻回來，不能等提示自己消失
+  if (action !== 'hintSwipe' && action !== 'none') swipeHintUntil = 0
+
   switch (action) {
     case 'exit': void bridge.shutDownPageContainer(1); break
     case 'sendNext': link.send({ type: 'control', action: 'next' }); break
@@ -276,6 +281,7 @@ bridge.onEvenHubEvent(event => {
     case 'localPrev': stepSlideLocal(-1); break
     case 'cursorUp': moveCursor(-1); break
     case 'cursorDown': moveCursor(1); break
+    case 'hintSwipe': flashSwipeHint(); break
   }
 })
 
@@ -494,7 +500,15 @@ function buildCountdown(): string {
  * 指示會讓這一欄變長（`183/183 ▷12/15 9/9` 實測 177px，遠超欄寬），
  * 所以由寬到窄逐級退讓，頁碼本身永遠保留。
  */
+/** 戒指把滑動誤判成按：頁碼格閃一下提示，1.2 秒後自動換回頁碼。 */
+function flashSwipeHint(): void {
+  swipeHintUntil = Date.now() + 1200
+  void paint('pageno', buildPageno(), pagenoUpgrade)
+  setTimeout(() => void paint('pageno', buildPageno(), pagenoUpgrade), 1250)
+}
+
 function buildPageno(): string {
+  if (Date.now() < swipeHintUntil) return t().lensSwipeHint
   const view = currentView()
   const page = view ? `${view.slide}/${view.total}` : '—'
 

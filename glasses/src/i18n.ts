@@ -31,6 +31,7 @@ interface Strings {
   lensOvertime: string
   lensNoScript: string
   lensMinute: string          // 分鐘單位，例如「分」
+  lensSwipeHint: string       // 手勢模式收到按一下時，頁碼格短暫顯示
 
   /* ── 手機設定畫面 ── */
   appSubtitle: string
@@ -104,6 +105,8 @@ const zh: Strings = {
   lensOvertime: '已超時',
   lensNoScript: '（這張沒有講稿）',
   lensMinute: '分',
+  // ■ 已實機驗過在字型裡；「上」「滑」尚未實機驗，缺字會被靜默跳過
+  lensSwipeHint: '■ 上下滑',
 
   appSubtitle: 'Keynote 講稿同步到鏡片',
   connecting: '連線中…',
@@ -154,7 +157,7 @@ const zh: Strings = {
   ringSwipe: '手勢',
   ringPress: '按鍵',
   ringBoth: '混合',
-  ringNoteSwipe: '上滑＝上一張，下滑＝下一步。箭頭交給語音跟隨。',
+  ringNoteSwipe: '上滑＝上一張，下滑＝下一步。箭頭交給語音跟隨。戒指把滑動誤判成按時，鏡片右上角會閃「■ 上下滑」，再滑一次即可；滑長一點、一氣呵成比較不會被誤判。',
   ringNotePress: '按一下＝下一步，長按＝上一張。上下滑移動箭頭。',
   ringNoteBoth: '上滑／長按＝上一張，下滑／按一下＝下一步，兩種都能用。',
 
@@ -175,6 +178,7 @@ const en: Strings = {
   lensOvertime: 'Over by',
   lensNoScript: '(no notes on this slide)',
   lensMinute: 'm',
+  lensSwipeHint: '■ swipe',
 
   appSubtitle: 'Keynote notes on your lens',
   connecting: 'Connecting…',
@@ -225,7 +229,7 @@ const en: Strings = {
   ringSwipe: 'Swipe',
   ringPress: 'Press',
   ringBoth: 'Both',
-  ringNoteSwipe: 'Swipe up for the previous slide, down to advance. Voice Follow moves the arrow.',
+  ringNoteSwipe: 'Swipe up for the previous slide, down to advance. Voice Follow moves the arrow. If the ring mistakes a swipe for a tap, the lens flashes “■ swipe” — just swipe again; a longer, single stroke is read more reliably.',
   ringNotePress: 'Tap to advance, long-press for the previous slide. Swipe to move the arrow.',
   ringNoteBoth: 'Swipe up or long-press for previous; swipe down or tap to advance.',
 

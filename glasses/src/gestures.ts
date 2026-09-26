@@ -25,6 +25,7 @@ export type GestureAction =
   | 'localPrev'   // 離線：退回快取的上一張
   | 'cursorUp'
   | 'cursorDown'
+  | 'hintSwipe'   // 手勢模式收到按一下／長按：戒指多半把滑動誤判成按，鏡片提示「請用滑的」
   | 'none'
 
 export interface GestureContext {
@@ -85,7 +86,7 @@ export function routeGesture(g: number, ctx: GestureContext): GestureAction {
     // ⚠️ 戒指／鏡腿實機會不會送長按尚待驗證，所以另外保留「第一行再上滑」這條路。
     // 長按＝上一張，只在戒指模式選了「按鍵」或「混合」時生效
     case LONG_PRESS:
-      if (ringLive(ctx)) return usesPress(ctx) ? 'sendPrev' : 'none'
+      if (ringLive(ctx)) return usesPress(ctx) ? 'sendPrev' : 'hintSwipe'
       return prev(ctx)
 
     // 戒指模式選「手勢」或「混合」：上滑＝上一張、下滑＝下一步（有動畫先播動畫），不看箭頭在哪一行。
@@ -105,7 +106,9 @@ export function routeGesture(g: number, ctx: GestureContext): GestureAction {
         // 一個手勢就能走完全程，不必記得現在該滑還是該按。
         return ctx.cursorLine < ctx.lineCount - 1 ? 'cursorDown' : 'localNext'
       }
-      if (ctx.mode === 'ring') return usesPress(ctx) ? 'sendNext' : 'none'
+      // 2026-09-27 診斷 log：15 次「按一下」幾乎都緊接在一次成功的滑動前——
+      // 是戒指把滑動誤判成按。不能猜方向（猜錯會翻錯頁），只提示再滑一次。
+      if (ctx.mode === 'ring') return usesPress(ctx) ? 'sendNext' : 'hintSwipe'
       return 'cursorDown'
 
     default:
