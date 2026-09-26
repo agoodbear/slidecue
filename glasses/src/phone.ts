@@ -16,6 +16,7 @@
 import type { ControlMode, RingInput } from './types.ts'
 import { prettyHost } from './host.ts'
 import { t, getLang, setLang, type Lang } from './i18n.ts'
+import { agentOutdated, AGENT_DOWNLOAD_URL, MIN_AGENT_VERSION } from './version.ts'
 
 export interface PhoneSettings {
   mode: ControlMode
@@ -68,6 +69,8 @@ let lastStatus: { connected: boolean; hasCache: boolean; rejected: boolean } | n
 let lastSlide: [number, number, string] | null = null
 let lastDecks: [Array<{ name: string; slides: number }>, string | null, string] | null = null
 let lastFollow: [boolean, string | undefined] | null = null
+/** 最後一次收到的電腦端版本；undefined＝還沒收到 info，null＝收到了但舊版沒回報。 */
+let lastAgentVersion: string | null | undefined = undefined
 
 /** 建立手機端畫面。回傳後即可用 update* 函式更新狀態。 */
 export function mountPhoneUi(initial: PhoneSettings, h: PhoneHandlers): void {
@@ -95,6 +98,7 @@ export function mountPhoneUi(initial: PhoneSettings, h: PhoneHandlers): void {
         </div>
         <div class="slide" id="slide">—</div>
         <p class="hint" id="hint"></p>
+        <p class="warn" id="agentWarn" hidden></p>
       </section>
 
       <section class="card">
@@ -296,6 +300,28 @@ function restoreState(): void {
   if (lastDecks) updatePhoneDecks(...lastDecks)
   // 錯誤訊息是切換前的語言，不重播；只還原開關狀態
   if (lastFollow) updatePhoneFollow(lastFollow[0])
+  if (lastAgentVersion !== undefined) updatePhoneAgentVersion(lastAgentVersion ?? undefined)
+}
+
+/**
+ * 電腦端太舊就提示重新下載。
+ *
+ * 只在收到 agent 的 info 之後才判斷——沒連上時不知道電腦端是哪一版，不能亂叫人更新。
+ */
+export function updatePhoneAgentVersion(reported: string | undefined): void {
+  lastAgentVersion = reported ?? null
+  const el = document.querySelector<HTMLElement>('#agentWarn')
+  if (!el) return
+  if (!agentOutdated(reported)) { el.hidden = true; return }
+  el.hidden = false
+  el.innerHTML = ''
+  el.append(t().agentOutdated(reported ?? '1.0.0', MIN_AGENT_VERSION) + ' ')
+  const a = document.createElement('a')
+  a.href = AGENT_DOWNLOAD_URL
+  a.target = '_blank'
+  a.rel = 'noopener'
+  a.textContent = AGENT_DOWNLOAD_URL.replace(/^https:\/\//, '').replace(/\/$/, '')
+  el.append(a)
 }
 
 /**
@@ -457,8 +483,11 @@ function injectStyles(): void {
     .slide { margin-top: 10px; font-size: 14px; color: var(--text-dim);
       font-variant-numeric: tabular-nums; line-height: 1.5; }
     .hint { margin: 10px 0 0; font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+    .warn { margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.6;
+            background: rgba(230, 150, 30, .14); color: var(--text); }
+    .warn a { color: inherit; font-weight: 500; text-decoration: underline; }
 
-    .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
     .seg button, .chips button {
       appearance: none; border: 1px solid var(--line); background: var(--bg);
       color: var(--text); border-radius: 10px; padding: 11px 12px;

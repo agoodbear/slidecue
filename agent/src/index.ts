@@ -19,6 +19,7 @@ import { buildDeck, type SlideScript } from './deck.ts'
 import { advance, retreat, type AdvanceMethod } from './advance.ts'
 import { AudioWindow, listenOnce, setWhisperEndpoint, whisperEndpoint } from './listen.ts'
 import type { DeckState, AgentInfo, DeckBundle, ControlMessage, ControlMode } from '../../glasses/src/types.ts'
+import { AGENT_VERSION } from '../../glasses/src/version.ts'
 
 const PORT = Number(process.env.SLIDECUE_PORT ?? 8788)
 
@@ -660,6 +661,7 @@ function pushBundle(ws?: WebSocket): void {
 function pushInfo(ws: WebSocket): void {
   const info: AgentInfo = {
     type: 'info',
+    agentVersion: AGENT_VERSION,
     mode,
     advanceMethod,
     detail: describeMethod(advanceMethod),

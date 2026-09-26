@@ -94,7 +94,7 @@ export function alignToLine(
  *   〔原話〕真正要念的句子…
  *   ── 補充（不用念，被問到再講） ──
  *   ・…
- * 有「── 台上講 ──」就只收它到下一條「──」分隔線之間；沒有就全部都算。
+ * 有「── 台上講 ──」就只收它到下一條「──」分隔線之間；沒有分隔線但有「【補充】」（ACLS 式）就收到它前面；都沒有就全部都算。
  * 空行與分隔線本身一律不算。
  */
 export function speakableLines(lines: string[]): number[] {
@@ -106,6 +106,11 @@ export function speakableLines(lines: string[]): number[] {
     from = stage + 1
     const next = lines.findIndex((l, i) => i > stage && isDivider(l))
     if (next >= 0) to = next
+  }
+  else {
+    // ACLS 式（2026-09-27 起 Meetup 也改用）：上面只放台上講，「【補充】」那行以下都不念
+    const supp = lines.findIndex(l => /^\s*【補充】/.test(l))
+    if (supp >= 0) to = supp
   }
   const out: number[] = []
   for (let i = from; i < to; i++) {

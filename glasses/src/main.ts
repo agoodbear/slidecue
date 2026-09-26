@@ -21,7 +21,7 @@ import { setLang, detectLang, t, type Lang } from './i18n.ts'
 import { nowCell, elapsedCell, countdownCell } from './clock.ts'
 import { AgentLink } from './link.ts'
 import { gestureOf, routeGesture } from './gestures.ts'
-import { mountPhoneUi, updatePhoneStatus, updatePhoneSlide, updatePhoneProbe, updatePhoneFollow, updatePhoneDecks, updatePhoneModelDownload } from './phone.ts'
+import { mountPhoneUi, updatePhoneStatus, updatePhoneSlide, updatePhoneProbe, updatePhoneFollow, updatePhoneDecks, updatePhoneModelDownload, updatePhoneAgentVersion } from './phone.ts'
 import {
   cueStartUp, nowUpgrade, elapsedUpgrade, countdownUpgrade,
   pagenoUpgrade, cursorUpgrade, scriptUpgrade,
@@ -324,6 +324,7 @@ function handleAgentMessage(msg: AgentMessage): void {
   if (msg.type === 'info') {
     updatePhoneDecks(msg.documents ?? [], msg.pinnedDeck ?? null, msg.activeDeck ?? '')
     updatePhoneModelDownload(msg.modelDownload ?? null)
+    updatePhoneAgentVersion(msg.agentVersion)
   }
   if (msg.type === 'cursor') {
     setCursorLine(msg.line)

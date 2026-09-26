@@ -79,6 +79,7 @@ interface Strings {
   modeNoteRing: string
   modeNoteManual: string
   secRingInput: string
+  agentOutdated: (have: string, need: string) => string
   ringSwipe: string
   ringPress: string
   ringBoth: string
@@ -149,6 +150,7 @@ const zh: Strings = {
   modeNoteRing: '用戒指翻 Keynote，有動畫會先播動畫。Spotlight 或鍵盤也照常能翻。',
   modeNoteManual: '用簡報器或鍵盤翻 Keynote，鏡片上的講稿自動跟上。',
   secRingInput: '戒指操作',
+  agentOutdated: (have, need) => `⚠︎ 電腦端 SlideCue 是 ${have} 版，這一版眼鏡需要 ${need} 以上。斷線重連與戒指翻頁要新版電腦端才會生效，請重新下載並打開一次：`,
   ringSwipe: '手勢',
   ringPress: '按鍵',
   ringBoth: '混合',
@@ -219,6 +221,7 @@ const en: Strings = {
   modeNoteRing: 'The ring turns Keynote; builds play first. Your clicker or keyboard still works too.',
   modeNoteManual: 'Advance Keynote with your clicker or keyboard; the script on the lens follows.',
   secRingInput: 'Ring controls',
+  agentOutdated: (have, need) => `⚠︎ SlideCue on your Mac is ${have}; this glasses version needs ${need} or later. Auto-reconnect and fast ring control need the new Mac app — download it again and open it once:`,
   ringSwipe: 'Swipe',
   ringPress: 'Press',
   ringBoth: 'Both',

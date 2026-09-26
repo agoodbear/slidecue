@@ -69,6 +69,8 @@ export interface DeckBundle {
 /** agent 對眼鏡端的回應與狀態告知。 */
 export interface AgentInfo {
   type: 'info'
+  /** 電腦端版本（1.1.0 起才有；沒有代表是 1.0.0 舊版）。見 version.ts。 */
+  agentVersion?: string
   /** Keynote 目前開著哪些簡報，給手機端列出來選。 */
   documents?: Array<{ name: string; slides: number }>
   /** 使用者點名指定的簡報；null 代表自動跟隨最前面／播放中的那一份。 */
