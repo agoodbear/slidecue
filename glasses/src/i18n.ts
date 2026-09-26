@@ -139,7 +139,7 @@ const zh: Strings = {
   secMode: '翻頁方式',
   modeManual: '我自己翻',
   modeRing: 'R1 戒指',
-  modeNoteRing: '戒指下滑（或單擊）＝下一步，有動畫會先播動畫；上滑＝上一張。箭頭交給語音跟隨。Spotlight 或鍵盤也照常能翻。',
+  modeNoteRing: '戒指下滑＝下一步（有動畫會先播動畫），上滑＝上一張，只認上下滑。箭頭交給語音跟隨。Spotlight 或鍵盤也照常能翻。',
   modeNoteManual: '用簡報器或鍵盤翻 Keynote，鏡片上的講稿自動跟上。',
 
   secDuration: '演講時長',
@@ -202,7 +202,7 @@ const en: Strings = {
   secMode: 'Slide control',
   modeManual: 'I advance slides',
   modeRing: 'R1 ring',
-  modeNoteRing: 'Swipe down (or tap) the ring to advance — builds play first; swipe up for the previous slide. Voice Follow moves the arrow. Your clicker or keyboard still works too.',
+  modeNoteRing: 'Swipe down on the ring to advance — builds play first; swipe up for the previous slide. Only swipes turn slides. Voice Follow moves the arrow. Your clicker or keyboard still works too.',
   modeNoteManual: 'Advance Keynote with your clicker or keyboard; the script on the lens follows.',
 
   secDuration: 'Talk length',

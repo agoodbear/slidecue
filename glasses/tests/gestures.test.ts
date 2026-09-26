@@ -26,12 +26,12 @@ const ctx = (o: Partial<GestureContext> = {}): GestureContext =>
 check('雙擊一律離開（審核必檢）', routeGesture(DOUBLE_CLICK, ctx()) === 'exit')
 check('雙擊離線也是離開', routeGesture(DOUBLE_CLICK, ctx({ live: false })) === 'exit')
 
-check('戒指模式單擊 → Keynote 下一步', routeGesture(CLICK, ctx()) === 'sendNext')
+check('戒指模式單擊 → 不動作（只認上下滑）', routeGesture(CLICK, ctx()) === 'none')
 check('自己翻模式單擊 → 箭頭下移', routeGesture(CLICK, ctx({ mode: 'manual' })) === 'cursorDown')
 check('離線單擊、稿還沒念完 → 箭頭下移', routeGesture(CLICK, ctx({ live: false })) === 'cursorDown')
 check('離線單擊、已在最後一行 → 快取下一張', routeGesture(CLICK, ctx({ live: false, cursorLine: 9 })) === 'localNext')
 
-check('戒指模式長按 → Keynote 上一張', routeGesture(LONG_PRESS, ctx()) === 'sendPrev')
+check('戒指模式長按 → 不動作（只認上下滑）', routeGesture(LONG_PRESS, ctx()) === 'none')
 check('自己翻模式長按 → 不動作（Keynote 當家）', routeGesture(LONG_PRESS, ctx({ mode: 'manual' })) === 'none')
 check('離線長按 → 快取上一張', routeGesture(LONG_PRESS, ctx({ live: false })) === 'localPrev')
 

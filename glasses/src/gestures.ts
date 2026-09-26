@@ -70,7 +70,9 @@ export function routeGesture(g: number, ctx: GestureContext): GestureAction {
 
     // 長按＝回上一張。雙擊已經被「離開」佔走，所以回上一張只能用長按。
     // ⚠️ 戒指／鏡腿實機會不會送長按尚待驗證，所以另外保留「第一行再上滑」這條路。
+    // 戒指模式只認上下滑（2026-09-27 Bear 實測：單擊＋長按＋滑動混用容易亂），長按不動作。
     case LONG_PRESS:
+      if (ctx.live && ctx.mode === 'ring') return 'none'
       return prev(ctx)
 
     // 戒指模式：上滑＝上一張、下滑＝下一步（有動畫先播動畫），箭頭交給語音跟隨。
@@ -89,7 +91,8 @@ export function routeGesture(g: number, ctx: GestureContext): GestureAction {
         // 一個手勢就能走完全程，不必記得現在該滑還是該按。
         return ctx.cursorLine < ctx.lineCount - 1 ? 'cursorDown' : 'localNext'
       }
-      return ctx.mode === 'ring' ? 'sendNext' : 'cursorDown'
+      // 戒指模式單擊不動作：翻頁只認上下滑
+      return ctx.mode === 'ring' ? 'none' : 'cursorDown'
 
     default:
       return 'none'
