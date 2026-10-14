@@ -7,8 +7,11 @@
  *
  * 三個設計原則，都是為了「台上不能出錯」：
  *
- *  1. **只往前，不回頭。** 講者念稿是單調前進的。允許往回匹配的話，
- *     講稿裡重複出現的詞（「心電圖」「這位病人」）會讓箭頭來回亂跳。
+ *  1. **往前用低門檻，跳躍用高門檻。** 順著念時只看後面幾行、門檻低，
+ *     跟得快。但講者不一定照順序（2026-10-14 Bear：先講第三句、再跳回
+ *     第一句），所以同一張的其他行（含前面）也會比對，只是要「明顯
+ *     更像那一行」才跳——分數夠高、勝過眼前候選、而且勝過全張第二名，
+ *     否則重複出現的詞（「心電圖」「這位病人」）會讓箭頭來回亂跳。
  *
  *  2. **模糊比對，不精確比對。** 用雙字元組重疊率——whisper 把
  *     「寬 QRS 頻脈」聽成「寬 QS 頻脈」不該影響定位，講者自己
@@ -27,17 +30,35 @@ export const DEFAULT_THRESHOLD = 0.3
 /** 只拿辨識結果的最後這麼多字來比對——講者「現在」念到哪才是重點。 */
 export const DEFAULT_TAIL_CHARS = 16
 
+/** 跳到視野外（含往回）的最低分。約等於念出那一行開頭 8 個字。 */
+export const DEFAULT_JUMP_THRESHOLD = 0.5
+
+/** 跳躍目標要比眼前候選、以及全張第二像的行，至少高出這麼多。 */
+export const DEFAULT_JUMP_MARGIN = 0.15
+
+/** 跳躍分數到這裡就當場跳；介於門檻與此值之間要連兩輪都指向同一行才跳。 */
+export const DEFAULT_JUMP_SURE = 0.7
+
 export interface AlignResult {
   /** 對到第幾行（全域索引）。-1 表示信心不足，呼叫端應維持原位。 */
   line: number
   /** 勝出的相似度，供除錯與門檻校準用。 */
   score: number
+  /** 'near'＝順著往下；'jump'＝跳到視野外（往前遠處或往回）。 */
+  kind?: 'near' | 'jump'
+  /** 跳躍信心夠高可以當場跳；false 表示要再一輪確認。 */
+  sure?: boolean
 }
 
 export interface AlignOptions {
   lookahead?: number
   threshold?: number
   tailChars?: number
+  /** false＝舊行為（只往前不回頭）。 */
+  allowJump?: boolean
+  jumpThreshold?: number
+  jumpMargin?: number
+  jumpSure?: number
 }
 
 /**
@@ -66,14 +87,16 @@ export function alignToLine(
   let bestLine = -1
   let bestScore = 0
 
-  // 只往前看：從目前這一行開始，往後 lookahead 個「會念出來的行」。
+  // 眼前視野：從目前這一行開始，往後 lookahead 個「會念出來的行」。
   // 標題、分隔線、空行不算數——否則講稿開頭有三行標題時，
   // 箭頭停在第 0 行就永遠看不到第一句台詞（2026-09-23 Meetup 講稿實際卡死）。
   const speak = speakableLines(lines)
   const candidates = speak.filter(i => i >= Math.max(0, currentLine)).slice(0, lookahead + 1)
+  const scores = new Map<number, number>()
+  for (const i of speak) scores.set(i, dice(heardGrams, bigrams(normalize(lines[i]))))
 
   for (const i of candidates) {
-    const score = dice(heardGrams, bigrams(normalize(lines[i])))
+    const score = scores.get(i)!
     // 嚴格大於：分數相同時保留較前面的行，避免無謂的前跳
     if (score > bestScore) {
       bestScore = score
@@ -81,8 +104,45 @@ export function alignToLine(
     }
   }
 
+  // 視野外（遠處或前面）：要明顯比所有其他行都像才跳
+  if (opts.allowJump ?? true) {
+    const inView = new Set(candidates)
+    let jumpLine = -1, jumpScore = 0
+    for (const i of speak) {
+      if (inView.has(i)) continue
+      const sc = scores.get(i)!
+      if (sc > jumpScore) { jumpScore = sc; jumpLine = i }
+    }
+    const jt = opts.jumpThreshold ?? DEFAULT_JUMP_THRESHOLD
+    const jm = opts.jumpMargin ?? DEFAULT_JUMP_MARGIN
+    if (jumpLine >= 0 && jumpScore >= jt && jumpScore - bestScore >= jm) {
+      let runnerUp = 0
+      for (const [i, sc] of scores) if (i !== jumpLine && sc > runnerUp) runnerUp = sc
+      if (jumpScore - runnerUp >= jm) {
+        return { line: jumpLine, score: jumpScore, kind: 'jump', sure: jumpScore >= (opts.jumpSure ?? DEFAULT_JUMP_SURE) }
+      }
+    }
+  }
+
   if (bestScore < threshold) return { line: -1, score: bestScore }
-  return { line: bestLine, score: bestScore }
+  return { line: bestLine, score: bestScore, kind: 'near', sure: true }
+}
+
+/**
+ * 跳躍確認閘：信心不夠高的跳躍要連兩輪指向同一行才放行。
+ * 一輪約 1.2 秒，等於多等一拍換來不亂跳。
+ */
+export class JumpGate {
+  private pending = -1
+  /** 回傳這一輪該不該真的移動箭頭。 */
+  accept(r: AlignResult): boolean {
+    if (r.line < 0) { this.pending = -1; return false }
+    if (r.kind !== 'jump' || r.sure) { this.pending = -1; return true }
+    if (this.pending === r.line) { this.pending = -1; return true }
+    this.pending = r.line
+    return false
+  }
+  reset(): void { this.pending = -1 }
 }
 
 /**

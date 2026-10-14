@@ -17,6 +17,7 @@ import { networkInterfaces, hostname } from 'node:os'
 import { snapshot, allNotes, listDocuments, pickKeynote, activeKeynoteId, type KeynoteSnapshot } from './keynote.ts'
 import { buildDeck, type SlideScript } from './deck.ts'
 import { advance, retreat, type AdvanceMethod } from './advance.ts'
+import { JumpGate } from '../../glasses/src/align.ts'
 import { AudioWindow, listenOnce, setWhisperEndpoint, whisperEndpoint } from './listen.ts'
 import type { DeckState, AgentInfo, DeckBundle, ControlMessage, ControlMode } from '../../glasses/src/types.ts'
 import { AGENT_VERSION } from '../../glasses/src/version.ts'
@@ -79,6 +80,7 @@ let staleTicks = 0
 // ── 語音跟隨 ───────────────────────────────────────────────────
 /** 眼鏡端算好的斷行。對齊必須以行為單位，而斷行只有眼鏡端知道。 */
 let followLines: string[] = []
+const jumpGate = new JumpGate()
 /** 箭頭目前在第幾行。由 Mac 這邊維護，因為對齊需要「上次在哪」。 */
 let followCursor = 0
 /** 語音跟隨開關。關掉時連轉錄都不做，省電也省 BLE 頻寬。 */
@@ -397,9 +399,13 @@ async function handleAudio(msg: { pcm: string; sampleRate?: number }): Promise<v
       log(`語音跟隨：聽到「${r.heard.slice(0, 20)}」但對不上講稿（分數 ${r.score.toFixed(2)} 低於門檻），箭頭留在原地`)
       return
     }
-    if (r.line === followCursor) return   // 沒動就不用送
+    if (r.line === followCursor) { jumpGate.reset(); return }   // 沒動就不用送
+    if (!jumpGate.accept(r)) {
+      log(`語音跟隨：疑似跳到第 ${r.line} 行（分數 ${r.score.toFixed(2)}），等下一輪確認｜聽到「${r.heard.slice(0, 20)}」`)
+      return
+    }
 
-    log(`語音跟隨：第 ${followCursor} → ${r.line} 行（分數 ${r.score.toFixed(2)}）｜聽到「${r.heard.slice(0, 20)}」`)
+    log(`語音跟隨：第 ${followCursor} → ${r.line} 行${r.kind === 'jump' ? '（跳躍）' : ''}（分數 ${r.score.toFixed(2)}）｜聽到「${r.heard.slice(0, 20)}」`)
     followCursor = r.line
     broadcast({ type: 'cursor', line: r.line, score: r.score, heard: r.heard })
   } catch (err) {
@@ -422,6 +428,7 @@ async function handleControl(msg: ControlMessage): Promise<void> {
     // 留著上一張的聲音會讓新的一張一開始就對到奇怪的位置
     followLines = msg.lines
     followCursor = 0
+    jumpGate.reset()
     audioWindow.reset()
     return
   }
@@ -453,7 +460,7 @@ async function handleControl(msg: ControlMessage): Promise<void> {
 
   if (msg.type === 'cursorAt') {
     // 講者用手勢推了箭頭。對齊要從新位置往前找，否則語音會把箭頭拉回舊處。
-    if (msg.line >= 0 && msg.line < followLines.length) followCursor = msg.line
+    if (msg.line >= 0 && msg.line < followLines.length) { followCursor = msg.line; jumpGate.reset() }
     return
   }
 
