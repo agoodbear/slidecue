@@ -40,6 +40,13 @@ const POLL_CLOSED_MS = 10_000
 
 let deck: SlideScript[] = []
 let deckName = ''
+/** 上次載入的原始附註（串起來），用來偵測講者改了備忘錄但張數沒變。 */
+let lastNotesKey = ''
+let docCountSeen = 0
+let lastNotesCheck = 0
+/** 備忘錄比對間隔：沒在播放時講者可能正在改稿，要跟得快；播放中改稿少見，放慢省 AppleScript。 */
+const NOTES_CHECK_IDLE_MS = 2000
+const NOTES_CHECK_PLAYING_MS = 10_000
 let mode: ControlMode = 'manual'
 let advanceMethod: AdvanceMethod = 'none'
 
@@ -558,16 +565,24 @@ async function refreshDeck(force = false): Promise<void> {
   }
   if (!force && snap.name === deckName && deck.length === snap.total) return
 
+  docCountSeen = snap.docCount
   const notes = await allNotes(pinnedDeck)
+  applyNotes(notes, snap.name)
+}
+
+/** 套用一份新讀到的附註並通知眼鏡端。 */
+function applyNotes(notes: string[], name: string): void {
+  lastNotesKey = notes.join('\x1e')
+  lastNotesCheck = Date.now()
   deck = buildDeck(notes)
-  deckName = snap.name
+  deckName = name
   const withNotes = deck.filter(s => !s.inherited && s.notes).length
   const inherited = deck.filter(s => s.inherited).length
   log(`已載入「${deckName}」：${deck.length} 張，${withNotes} 張有自己的稿，${inherited} 張沿用前一張`)
   // 開著多個簡報時，跟的是「最前面」那一個。這件事必須講出來——
   // 否則使用者開了新檔卻看到舊稿，完全不知道是被另一個視窗擋住了。
-  if (snap.docCount > 1) {
-    log(`⚠︎ Keynote 開著 ${snap.docCount} 個簡報，目前跟隨最前面的「${deckName}」。` +
+  if (docCountSeen > 1) {
+    log(`⚠︎ Keynote 開著 ${docCountSeen} 個簡報，目前跟隨最前面的「${deckName}」。` +
         `按下播放會自動切到你要講的那一份。`)
   }
   // 講稿一變就把整份補送給所有眼鏡端，離線備援才不會是舊的
@@ -638,7 +653,8 @@ async function pushStateToAll(force = false, known?: KeynoteSnapshot): Promise<v
   syncTimer(snap.playing)
   const state = currentState(snap)
   // 秒數放進去重鍵，計時器才會每秒動一次；毫秒級的變化不需要送。
-  const key = `${state.slide}/${state.total}/${state.playing}/${state.deckName}/${state.elapsedSec}`
+  // 講稿內容也要放進去：停在同一張改備忘錄時，張數秒數都沒變，不放就永遠不會重送（2026-10-15 Bear 回報）。
+  const key = `${state.slide}/${state.total}/${state.playing}/${state.deckName}/${state.elapsedSec}/${state.notes}`
   if (!force && key === lastBroadcast) return
   lastBroadcast = key
   for (const ws of wss.clients) send(ws, state)
@@ -744,6 +760,20 @@ async function loop(): Promise<void> {
         await refreshDeck()
       }
       if (!snap.open && deck.length) await refreshDeck()
+
+      // 張數沒變但備忘錄改了：定期把整份附註拿來比對（一次 0.2 秒）。
+      // 以前只在換檔、張數變動、開播時重讀，停在原處改稿眼鏡永遠是舊的。
+      if (snap.open && snap.name === deckName && deck.length === snap.total &&
+          Date.now() - lastNotesCheck > (snap.playing ? NOTES_CHECK_PLAYING_MS : NOTES_CHECK_IDLE_MS)) {
+        lastNotesCheck = Date.now()
+        const notes = await allNotes(pinnedDeck)
+        if (gen === commandGen && !commandBusy && notes.length === snap.total && notes.join('\x1e') !== lastNotesKey) {
+          const changed = notes.filter((n, i) => n !== lastNotesKey.split('\x1e')[i]).length
+          log(`偵測到備忘錄改動（${changed} 張），重新載入`)
+          docCountSeen = snap.docCount
+          applyNotes(notes, snap.name)
+        }
+      }
 
       // 開關簡報時才重新列一次清單。這一步每多一份文件就多一次
       // AppleScript 來回，不該進高頻輪詢。
