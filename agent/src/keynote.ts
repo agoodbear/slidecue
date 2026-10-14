@@ -128,7 +128,9 @@ export async function snapshot(pinned: string | null = null): Promise<KeynoteSna
       ${pick}
       set p to playing as text
       set n to slide number of current slide of d
-      set t to count of slides of d
+      -- 張數與編號一律用「播放順序」：跳過的投影片 Keynote 不給編號（slide number = -1），
+      -- 後面的編號全部往前縮。總數若含跳過張，就會跟編號對不上（2026-10-15 ICU 五官科 7 張跳過，鏡片顯示前一張的稿）。
+      set t to count of (slides of d whose skipped is false)
       return "1${US}" & p & "${US}" & n & "${US}" & t & "${US}" & (name of d) & "${US}" & c
     end tell
   `)
@@ -169,18 +171,21 @@ export async function allNotes(pinned: string | null = null): Promise<string[]> 
       -- 快路：一次取整份（123 張實測 0.2 秒，逐張問要 1.4 秒）。
       -- 有任何一張回 missing value 時串接會失敗，才退回逐張問。
       try
-        set lst to presenter notes of every slide of d
+        -- 只取不跳過的投影片，索引才會等於 slide number（見 snapshot 的說明）
+        set lst to presenter notes of (slides of d whose skipped is false)
         set AppleScript's text item delimiters to "${RS}"
         set out to (lst as text) & "${RS}"
         set AppleScript's text item delimiters to ""
-        if (count of lst) is (count of slides of d) then return out
+        if (count of lst) is (count of (slides of d whose skipped is false)) then return out
       end try
       set AppleScript's text item delimiters to ""
       set out to ""
       repeat with i from 1 to count of slides of d
-        set nt to presenter notes of slide i of d
-        if nt is missing value then set nt to ""
-        set out to out & (nt as text) & "${RS}"
+        if not (skipped of slide i of d) then
+          set nt to presenter notes of slide i of d
+          if nt is missing value then set nt to ""
+          set out to out & (nt as text) & "${RS}"
+        end if
       end repeat
       return out
     end tell
@@ -214,7 +219,8 @@ export async function showSlide(n: number, pinned: string | null = null): Promis
     tell application id "${activeApp}"
       if (count of documents) is 0 then return
       ${pick}
-      show slide ${Math.max(1, Math.floor(n))} of d
+      -- n 是播放順序的編號，要從不跳過的投影片裡數，不能用 slide n（那會把跳過的也算進去）
+      show item ${Math.max(1, Math.floor(n))} of (slides of d whose skipped is false)
     end tell
   `)
 }
