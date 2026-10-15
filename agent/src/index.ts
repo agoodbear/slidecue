@@ -19,6 +19,7 @@ import { buildDeck, type SlideScript } from './deck.ts'
 import { advance, retreat, type AdvanceMethod } from './advance.ts'
 import { JumpGate } from '../../glasses/src/align.ts'
 import { AudioWindow, listenOnce, setWhisperEndpoint, whisperEndpoint } from './listen.ts'
+import { recordAudio, recordEvent } from './recorder.ts'
 import type { DeckState, AgentInfo, DeckBundle, ControlMessage, ControlMode } from '../../glasses/src/types.ts'
 import { AGENT_VERSION } from '../../glasses/src/version.ts'
 
@@ -369,6 +370,7 @@ async function handleAudio(msg: { pcm: string; sampleRate?: number }): Promise<v
   }
 
   const chunk = Buffer.from(msg.pcm, 'base64')
+  if (recordAudio(chunk, audioSampleRate)) recordEvent({ type: 'lines', lines: followLines, cursor: followCursor })
 
   // 第一次收到聲音時把格式攤開來記一筆。
   // PCM 格式是整條管線唯一沒辦法在 Mac 上先驗的環節——如果 G2 送的
@@ -396,6 +398,7 @@ async function handleAudio(msg: { pcm: string; sampleRate?: number }): Promise<v
 
     // 對齊過程要留下痕跡。箭頭不動有三種完全不同的原因——沒收到聲音、
     // 聽錯了、或對不上——沒有這些記錄就只能猜，而三者的修法不一樣。
+    recordEvent({ type: 'round', heard: r?.heard ?? null, line: r?.line ?? null, score: r?.score ?? null, cursor: followCursor })
     if (!r) {
       if (++quietRounds % 5 === 0) log(`語音跟隨：連續 ${quietRounds} 輪沒聽到聲音（麥克風太遠或環境太安靜）`)
       return
@@ -414,6 +417,7 @@ async function handleAudio(msg: { pcm: string; sampleRate?: number }): Promise<v
 
     log(`語音跟隨：第 ${followCursor} → ${r.line} 行${r.kind === 'jump' ? '（跳躍）' : ''}（分數 ${r.score.toFixed(2)}）｜聽到「${r.heard.slice(0, 20)}」`)
     followCursor = r.line
+    recordEvent({ type: 'cursor', line: r.line, by: 'voice' })
     broadcast({ type: 'cursor', line: r.line, score: r.score, heard: r.heard })
   } catch (err) {
     log(`辨識失敗：${(err as Error).message}`)
@@ -437,6 +441,7 @@ async function handleControl(msg: ControlMessage): Promise<void> {
     followCursor = 0
     jumpGate.reset()
     audioWindow.reset()
+    recordEvent({ type: 'lines', lines: followLines, cursor: 0 })
     return
   }
 
@@ -467,7 +472,7 @@ async function handleControl(msg: ControlMessage): Promise<void> {
 
   if (msg.type === 'cursorAt') {
     // 講者用手勢推了箭頭。對齊要從新位置往前找，否則語音會把箭頭拉回舊處。
-    if (msg.line >= 0 && msg.line < followLines.length) { followCursor = msg.line; jumpGate.reset() }
+    if (msg.line >= 0 && msg.line < followLines.length) { followCursor = msg.line; jumpGate.reset(); recordEvent({ type: 'cursor', line: msg.line, by: 'gesture' }) }
     return
   }
 
