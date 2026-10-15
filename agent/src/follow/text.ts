@@ -8,17 +8,14 @@
  * normalize／bigrams／dice／speakableLines 沿用 glasses/src/align.ts（只讀取，不改語意）。
  */
 
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { normalize, bigrams, dice } from '../../../glasses/src/align.ts'
+// 用 import 帶進來而不是執行時讀檔：打包成單一 agent.js 後旁邊沒有這個檔案
+import PINYIN from './pinyin-table.json' with { type: 'json' }
 
 export { normalize, bigrams, dice }
 
 /** 字 → 無聲調拼音。U+4E00–U+9FFF，多音字取最常見讀音（與離線評估的 pypinyin 預設一致）。 */
-const TABLE: Record<string, string> = JSON.parse(
-  readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'pinyin-table.json'), 'utf8'),
-)
+const TABLE: Record<string, string> = PINYIN
 
 export function pinyinOf(ch: string): string {
   return TABLE[ch] ?? ch

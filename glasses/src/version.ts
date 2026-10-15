@@ -10,7 +10,7 @@
  */
 
 /** 這一版電腦端的版本號。改了 agent 並要發新 Release 時一起升。 */
-export const AGENT_VERSION = '1.1.0'
+export const AGENT_VERSION = '1.2.0'
 
 /** 眼鏡端要求的最低電腦端版本。低於它就提示更新。 */
 export const MIN_AGENT_VERSION = '1.1.0'
