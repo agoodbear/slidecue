@@ -17,8 +17,8 @@ import { networkInterfaces, hostname } from 'node:os'
 import { snapshot, allNotes, listDocuments, pickKeynote, activeKeynoteId, type KeynoteSnapshot } from './keynote.ts'
 import { buildDeck, type SlideScript } from './deck.ts'
 import { advance, retreat, type AdvanceMethod } from './advance.ts'
-import { JumpGate } from '../../glasses/src/align.ts'
-import { AudioWindow, listenOnce, setWhisperEndpoint, whisperEndpoint } from './listen.ts'
+import { setWhisperEndpoint, whisperEndpoint } from './listen.ts'
+import { FollowPipeline } from './follow/pipeline.ts'
 import { recordAudio, recordEvent } from './recorder.ts'
 import type { DeckState, AgentInfo, DeckBundle, ControlMessage, ControlMode } from '../../glasses/src/types.ts'
 import { AGENT_VERSION } from '../../glasses/src/version.ts'
@@ -86,24 +86,20 @@ let lastDocCount = -1
 let staleTicks = 0
 
 // ── 語音跟隨 ───────────────────────────────────────────────────
-/** 眼鏡端算好的斷行。對齊必須以行為單位，而斷行只有眼鏡端知道。 */
-let followLines: string[] = []
-const jumpGate = new JumpGate()
-/** 箭頭目前在第幾行。由 Mac 這邊維護，因為對齊需要「上次在哪」。 */
-let followCursor = 0
+/**
+ * 整條「聽 → 對齊」管線（視窗、有聲判斷、whisper、過濾、對齊、箭頭）都在這個物件裡，
+ * 講稿行、箭頭位置也由它維護——同一條管線才能拿真人錄音離線重播（tools/replay.ts）。
+ *
+ * SLIDECUE_FOLLOW_V2=0 退回 2026-10-15 之前的行為（整行 bigram、固定 RMS 門檻、前 800 字 prompt）。
+ */
+const FOLLOW_V2 = process.env.SLIDECUE_FOLLOW_V2 !== '0'
+const follow = new FollowPipeline({ v2: FOLLOW_V2 })
 /** 語音跟隨開關。關掉時連轉錄都不做，省電也省 BLE 頻寬。 */
 let following = false
-/** 眼鏡送上來的 PCM 緩衝。 */
-const audioWindow = new AudioWindow()
 /** 眼鏡回報的取樣率。第一次收到時記下來，之後照它走。 */
 let audioSampleRate = 16_000
-/** 同時間只跑一輪辨識。上一輪還沒回來就把這一輪丟掉——
- *  堆積起來只會讓箭頭愈追愈慢，丟掉反而永遠追著最新的聲音。 */
-let transcribing = false
 /** 是否已經記錄過音訊格式。只記第一包，不要洗版。 */
 let audioSeen = false
-/** 連續幾輪沒聽到聲音。用來判斷是「沒收到音」還是「對不上」。 */
-let quietRounds = 0
 /** 正在跑的 whisper 程序。關掉語音跟隨時要收掉，把 1.7 GB 還回去。 */
 let whisperChild: ReturnType<typeof spawn> | null = null
 
@@ -211,8 +207,9 @@ const httpServer = createHttpServer((req, res) => {
       connectCode: connectCode(),
       follow: following,
       whisper: whisperEndpoint() ?? null,
-      followLines: followLines.length,
-      cursor: followCursor,
+      followLines: follow.lines.length,
+      cursor: follow.cursor,
+      followV2: FOLLOW_V2,
     }))
     return
   }
@@ -363,14 +360,14 @@ wss.on('connection', (ws, req) => {
  */
 async function handleAudio(msg: { pcm: string; sampleRate?: number }): Promise<void> {
   if (!following || !whisperEndpoint()) return
-  if (followLines.length === 0) return
+  if (follow.lines.length === 0) return
   if (msg.sampleRate && msg.sampleRate !== audioSampleRate) {
     audioSampleRate = msg.sampleRate
     log(`眼鏡回報取樣率 ${audioSampleRate} Hz`)
   }
 
   const chunk = Buffer.from(msg.pcm, 'base64')
-  if (recordAudio(chunk, audioSampleRate)) recordEvent({ type: 'lines', lines: followLines, cursor: followCursor })
+  if (recordAudio(chunk, audioSampleRate)) recordEvent({ type: 'lines', lines: follow.lines, cursor: follow.cursor })
 
   // 第一次收到聲音時把格式攤開來記一筆。
   // PCM 格式是整條管線唯一沒辦法在 Mac 上先驗的環節——如果 G2 送的
@@ -387,42 +384,39 @@ async function handleAudio(msg: { pcm: string; sampleRate?: number }): Promise<v
         `接近 0 或貼著 32767 代表格式不是 16-bit LE）`)
   }
 
-  const window = audioWindow.push(chunk)
-  if (!window) return
-
-  // 上一輪還在跑就跳過這一輪。追最新的聲音，不要排隊。
-  if (transcribing) return
-  transcribing = true
   try {
-    const r = await listenOnce(window, followLines, followCursor, audioSampleRate)
+    const ev = await follow.onPcm(chunk, audioSampleRate)
+    if (!ev || ev.kind === 'dropped') return
 
-    // 對齊過程要留下痕跡。箭頭不動有三種完全不同的原因——沒收到聲音、
-    // 聽錯了、或對不上——沒有這些記錄就只能猜，而三者的修法不一樣。
-    recordEvent({ type: 'round', heard: r?.heard ?? null, line: r?.line ?? null, score: r?.score ?? null, cursor: followCursor })
-    if (!r) {
-      if (++quietRounds % 5 === 0) log(`語音跟隨：連續 ${quietRounds} 輪沒聽到聲音（麥克風太遠或環境太安靜）`)
-      return
+    // 對齊過程要留下痕跡。箭頭不動有好幾種完全不同的原因——沒收到聲音、
+    // 被過濾、聽錯了、或對不上——沒有這些記錄就只能猜，而每一種的修法不一樣。
+    recordEvent({ type: 'round', kind: ev.kind, heard: ev.heard ?? null, line: ev.line ?? null, score: ev.score ?? null,
+                  cursor: follow.cursor, rms: ev.rms === undefined ? null : Math.round(ev.rms), floor: ev.floor === undefined || ev.floor === null ? null : Math.round(ev.floor) })
+    const heard = (ev.heard ?? '').slice(0, 20)
+    const sc = ev.score === undefined ? '' : ev.score.toFixed(2)
+    switch (ev.kind) {
+      case 'quiet':
+      case 'empty':
+        if (follow.quietRounds % 5 === 0) log(`語音跟隨：連續 ${follow.quietRounds} 輪沒聽到聲音（麥克風太遠或環境太安靜）${ev.floor ? `｜底噪 ${Math.round(ev.floor)}` : ''}`)
+        return
+      case 'filtered':
+        log(`語音跟隨：聽到「${heard}」判為${ev.reason}，不計`)
+        return
+      case 'stay':
+        if (FOLLOW_V2) log(`語音跟隨：聽到「${heard}」最像第 ${ev.line} 行（信心 ${sc}），箭頭留在第 ${follow.cursor} 行`)
+        else if (ev.line !== undefined && ev.line < 0) log(`語音跟隨：聽到「${heard}」但對不上講稿（分數 ${sc} 低於門檻），箭頭留在原地`)
+        return
+      case 'pending':
+        log(`語音跟隨：疑似跳到第 ${ev.line} 行（${FOLLOW_V2 ? '信心' : '分數'} ${sc}），等下一輪確認｜聽到「${heard}」`)
+        return
+      case 'move':
+        log(`語音跟隨：→ 第 ${ev.cursor} 行${ev.jump ? '（跳躍）' : ''}（${FOLLOW_V2 ? '信心' : '分數'} ${sc}）｜聽到「${heard}」`)
+        recordEvent({ type: 'cursor', line: ev.cursor, by: 'voice' })
+        broadcast({ type: 'cursor', line: ev.cursor, score: ev.score ?? 0, heard: ev.heard ?? '' })
+        return
     }
-    quietRounds = 0
-
-    if (r.line < 0) {
-      log(`語音跟隨：聽到「${r.heard.slice(0, 20)}」但對不上講稿（分數 ${r.score.toFixed(2)} 低於門檻），箭頭留在原地`)
-      return
-    }
-    if (r.line === followCursor) { jumpGate.reset(); return }   // 沒動就不用送
-    if (!jumpGate.accept(r)) {
-      log(`語音跟隨：疑似跳到第 ${r.line} 行（分數 ${r.score.toFixed(2)}），等下一輪確認｜聽到「${r.heard.slice(0, 20)}」`)
-      return
-    }
-
-    log(`語音跟隨：第 ${followCursor} → ${r.line} 行${r.kind === 'jump' ? '（跳躍）' : ''}（分數 ${r.score.toFixed(2)}）｜聽到「${r.heard.slice(0, 20)}」`)
-    followCursor = r.line
-    recordEvent({ type: 'cursor', line: r.line, by: 'voice' })
-    broadcast({ type: 'cursor', line: r.line, score: r.score, heard: r.heard })
   } catch (err) {
     log(`辨識失敗：${(err as Error).message}`)
-  } finally {
-    transcribing = false
   }
 }
 
@@ -437,11 +431,8 @@ async function handleControl(msg: ControlMessage): Promise<void> {
   if (msg.type === 'lines') {
     // 換頁或重新斷行：箭頭回到開頭，緩衝清掉——
     // 留著上一張的聲音會讓新的一張一開始就對到奇怪的位置
-    followLines = msg.lines
-    followCursor = 0
-    jumpGate.reset()
-    audioWindow.reset()
-    recordEvent({ type: 'lines', lines: followLines, cursor: 0 })
+    follow.setLines(msg.lines, deck.flatMap(s => s.notes.split('\n')))
+    recordEvent({ type: 'lines', lines: follow.lines, cursor: 0 })
     return
   }
 
@@ -472,7 +463,7 @@ async function handleControl(msg: ControlMessage): Promise<void> {
 
   if (msg.type === 'cursorAt') {
     // 講者用手勢推了箭頭。對齊要從新位置往前找，否則語音會把箭頭拉回舊處。
-    if (msg.line >= 0 && msg.line < followLines.length) { followCursor = msg.line; jumpGate.reset(); recordEvent({ type: 'cursor', line: msg.line, by: 'gesture' }) }
+    if (msg.line >= 0 && msg.line < follow.lines.length) { follow.setCursor(msg.line); recordEvent({ type: 'cursor', line: msg.line, by: 'gesture' }) }
     return
   }
 
@@ -944,9 +935,8 @@ async function ensureModel(): Promise<string | null> {
  */
 function stopFollowing(reason: string): void {
   following = false
-  audioWindow.reset()
+  follow.reset()
   audioSeen = false
-  quietRounds = 0
   whisperChild?.kill()
   whisperChild = null
   setWhisperEndpoint(null)
