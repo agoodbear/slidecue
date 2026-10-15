@@ -386,7 +386,8 @@ async function handleAudio(msg: { pcm: string; sampleRate?: number }): Promise<v
 
   try {
     const ev = await follow.onPcm(chunk, audioSampleRate)
-    if (!ev || ev.kind === 'dropped') return
+    if (!ev || ev.kind === 'dropped' || ev.kind === 'stale') return
+    if (!following) return               // 辨識期間被關掉：不記、不廣播
 
     // 對齊過程要留下痕跡。箭頭不動有好幾種完全不同的原因——沒收到聲音、
     // 被過濾、聽錯了、或對不上——沒有這些記錄就只能猜，而每一種的修法不一樣。

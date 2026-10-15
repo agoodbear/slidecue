@@ -123,6 +123,24 @@ console.log('\n[5] 對齊器 v2')
   check('空講稿不炸', new Align2([]).feed('隨便', 1).cursor === 0)
 }
 
+console.log('\n[5b] 手勢推到不可念行（審查第 1 項）')
+{
+  const L2 = ['台詞一句話在這裡', '台詞第二句在這裡', '台詞第三句在這裡', '【補充】', '• 不用念的補充一', '• 不用念的補充二']
+  const a = new Align2(L2)
+  a.setCursor(4)                                   // 推到【補充】以下
+  check('推到補充行：對齊器錨在最後可念行', a.cursor === 2, String(a.cursor))
+  let r = a.feed('台詞第三句在這裡', 1.2)
+  check('推到補充行後開口：不回第 0 行', r.cursor === 2 && !r.moved, JSON.stringify(r))
+  const b = new Align2(L2)
+  b.setCursor(5)                                   // 推到最後一行（超過最後可念行）
+  r = b.feed('不用念的補充', 1.2)
+  check('推到末行之後開口：不回第 0 行', r.cursor === 2, JSON.stringify(r))
+  const c = new Align2(['【① 轉換】標題', '', '── 台上講 ──', '台詞一', '台詞二'])
+  c.setCursor(0)                                   // 推到開頭的標題：前面沒有可念行 → 維持原位
+  check('推到開頭標題：維持原位', c.cursor === 3, String(c.cursor))
+  check('空講稿 setCursor 不炸', (() => { const e = new Align2([]); e.setCursor(3); return e.cursor === 0 })())
+}
+
 console.log('\n[6] 管線（假 whisper）')
 {
   // 假 whisper：用 heard 佇列回應，不開真的 server
@@ -150,6 +168,22 @@ console.log('\n[6] 管線（假 whisper）')
     check(`v${v2 ? 2 : 1}：箭頭到第 4 行`, fp.cursor === 4, String(fp.cursor))
     fp.setCursor(1)
     check(`v${v2 ? 2 : 1}：手勢推箭頭`, fp.cursor === 1)
+    if (v2) {
+      const L2 = ['台詞一句話在這裡', '台詞第二句在這裡', '台詞第三句在這裡', '【補充】', '• 不用念的補充一']
+      fp.setLines(L2)
+      for (let i = 0; i < 50; i++) await fp.onPcm(speech(1400, 800))
+      fp.setCursor(4)                                // 手勢推到補充行
+      queue.push('台詞第三句在這裡', '台詞第三句在這裡', '台詞第三句在這裡')
+      const got: string[] = []
+      for (let i = 0; i < 24 * 3; i++) { const e = await fp.onPcm(speech(6000, 800)); if (e && e.kind !== 'quiet') got.push(e.kind) }
+      check('推到補充行後開口：沒有拉回第 0 行的 move', got.includes('stay') && !got.includes('move') && fp.cursor === 4, JSON.stringify(got) + ' cursor=' + fp.cursor)
+      // 換頁後回來的結果要丟掉：先推一個視窗進辨識，在 await 期間 setLines
+      queue.push('台詞第二句在這裡')
+      let pending: Promise<any> | null = null
+      for (let i = 0; i < 24 * 2 && !pending; i++) { const pr = fp.onPcm(speech(6000, 800)); const e = await Promise.race([pr, new Promise(r => setTimeout(() => r('busy'), 0))]); if (e === 'busy') pending = pr }
+      if (pending) { fp.setLines(LINES); const e = await pending; check('辨識期間換頁：結果標 stale、箭頭留在新張第 0 行', e?.kind === 'stale' && fp.cursor === 0, JSON.stringify(e)) }
+      else check('辨識期間換頁（無法重現 busy，略過）', true)
+    }
   }
   fakeServer.close()
   setWhisperEndpoint(null)

@@ -20,7 +20,7 @@ import { NoiseFloor, rms } from './vad.ts'
 import { isNonSpeech, isPromptEcho } from './filter.ts'
 import { buildLocalPrompt } from './prompt.ts'
 
-export type FollowEventKind = 'quiet' | 'dropped' | 'empty' | 'filtered' | 'stay' | 'pending' | 'move'
+export type FollowEventKind = 'quiet' | 'dropped' | 'stale' | 'empty' | 'filtered' | 'stay' | 'pending' | 'move'
 
 export interface FollowEvent {
   kind: FollowEventKind
@@ -90,10 +90,10 @@ export class FollowPipeline {
   /** 講者用手勢推了箭頭：對齊要從新位置往前找。 */
   setCursor(line: number): void {
     if (line < 0 || line >= this.lines.length) return
-    this.cursor = line
+    this.cursor = line                 // 鏡片上的箭頭真的在這一行（可能是不可念行）
     this.gate.reset()
     this.pendingJump = -1
-    this.a2?.setCursor(line)
+    this.a2?.setCursor(line)           // 對齊器錨在最後一個 ≤ line 的可念行
   }
 
   /** 關掉跟隨：清緩衝與底噪估計；講稿與箭頭保留（再開時眼鏡會重送 lines）。 */
@@ -136,13 +136,16 @@ export class FollowPipeline {
     }
   }
 
-  /** 舊版：與 2026-10-15 之前的 index.ts handleAudio 逐條相同。 */
+  /** 舊版：與 2026-10-15 之前的 index.ts handleAudio 逐條相同（多了換頁後丟棄過期結果）。 */
   private async roundLegacy(win: Buffer, sampleRate: number, t: number, r: number): Promise<FollowEvent> {
-    const script = speakableLines(this.lines).map(i => this.lines[i]).join('')
+    const lines = this.lines
+    const script = speakableLines(lines).map(i => lines[i]).join('')
     const t0 = Date.now()
     const heard = await transcribe(win, script, sampleRate)
     const latency = (Date.now() - t0) / 1000
     this.busyUntil = t + latency
+    // 辨識期間換頁了：這段聲音屬於上一張，結果直接丟掉
+    if (lines !== this.lines) return { kind: 'stale', cursor: this.cursor, t, rms: r, latency }
     if (!heard) { this.quietRounds++; return { kind: 'empty', cursor: this.cursor, t, rms: r, latency } }
     this.quietRounds = 0
     const res = alignToLine(heard, this.lines, this.cursor)
@@ -155,30 +158,34 @@ export class FollowPipeline {
   }
 
   private async roundV2(win: Buffer, sampleRate: number, t: number, r: number, floor: number | null): Promise<FollowEvent> {
-    const prompt = buildLocalPrompt(this.lines, this.cursor)
+    // 辨識前先把這一輪用的對齊器與講稿記下來：await 回來時可能已經換頁
+    const a2 = this.a2!
+    const prompt = buildLocalPrompt(this.lines, a2.cursor)
     const t0 = Date.now()
     const heard = await transcribe(win, prompt, sampleRate)
     const latency = (Date.now() - t0) / 1000
     this.busyUntil = t + latency
     const base = { cursor: this.cursor, t, rms: r, floor, latency }
+    if (a2 !== this.a2) return { kind: 'stale', ...base }
     if (!heard) { this.quietRounds++; return { kind: 'empty', ...base } }
     if (isNonSpeech(heard)) return { kind: 'filtered', ...base, heard, reason: '非語音' }
     if (isPromptEcho(heard, prompt, r, floor)) return { kind: 'filtered', ...base, heard, reason: '疑似補回（與 prompt 逐字相同但能量貼底噪）' }
     this.quietRounds = 0
-    const a2 = this.a2!
+    // 以對齊器自己的箭頭為準：手勢推到不可念行時，鏡片箭頭（this.cursor）在那一行，
+    // 對齊器錨在它前面最後一個可念行；兩者不同不算移動。
+    const before = a2.cursor
     const res = a2.feed(heard, t)
-    let cursor = res.cursor
     if (res.moved && res.kind === 'jump' && this.jumpConfirm && res.conf < 0.95) {
       // 視野外跳躍：要連兩輪都指向同一行才放行
       if (this.pendingJump !== res.best) {
         this.pendingJump = res.best
-        a2.cursor = this.cursor            // 對齊器的箭頭先留在原地，下一輪再看
+        a2.cursor = before                 // 對齊器的箭頭先留在原地，下一輪再看
         return { kind: 'pending', ...base, heard, line: res.best, score: res.conf, jump: true }
       }
     }
     this.pendingJump = -1
-    if (cursor === this.cursor) return { kind: 'stay', ...base, heard, line: res.best, score: res.conf }
-    this.cursor = cursor
-    return { kind: 'move', ...base, cursor, heard, line: res.best, score: res.conf, jump: res.kind === 'jump' }
+    if (res.cursor === before) return { kind: 'stay', ...base, heard, line: res.best, score: res.conf }
+    this.cursor = res.cursor
+    return { kind: 'move', ...base, cursor: this.cursor, heard, line: res.best, score: res.conf, jump: res.kind === 'jump' }
   }
 }

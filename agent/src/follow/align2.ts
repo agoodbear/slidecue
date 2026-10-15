@@ -81,12 +81,20 @@ export class Align2 {
     this.cursor = this.speak[0] ?? 0
   }
 
-  /** 講者用手勢推了箭頭、或換張：機率全部集中到那一行。 */
+  /**
+   * 講者用手勢推了箭頭、或換張：機率全部集中到那一行。
+   * 推到不可念的行（【補充】以下、標題、空行）時，錨定在它前面最後一個可念行；
+   * 前面也沒有可念行就維持原位——絕不能掉回第 0 行，否則下一輪語音會把箭頭拉回開頭。
+   */
   setCursor(line: number): void {
     let k = this.speak.indexOf(line)
-    if (k < 0) k = Math.max(0, this.speak.findIndex(i => i >= line))
+    if (k < 0) {
+      for (let j = this.speak.length - 1; j >= 0; j--) if (this.speak[j] <= line) { k = j; break }
+    }
+    if (k < 0) k = this.speak.indexOf(this.cursor)
+    if (k < 0) return
     this.belief = this.speak.map((_, j) => (j === k ? 1 : 0))
-    this.cursor = this.speak[k] ?? line
+    this.cursor = this.speak[k]
     this.tLast = null
   }
 
