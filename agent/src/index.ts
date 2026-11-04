@@ -20,6 +20,7 @@ import { advance, retreat, type AdvanceMethod } from './advance.ts'
 import { setWhisperEndpoint, whisperEndpoint } from './listen.ts'
 import { FollowPipeline } from './follow/pipeline.ts'
 import { recordAudio, recordEvent } from './recorder.ts'
+import { parseControl, isKnownDeck, escapeHtml } from './control.ts'
 import type { DeckState, AgentInfo, DeckBundle, ControlMessage, ControlMode } from '../../glasses/src/types.ts'
 import { AGENT_VERSION } from '../../glasses/src/version.ts'
 
@@ -215,7 +216,7 @@ const httpServer = createHttpServer((req, res) => {
   }
 
   // 其他路徑回一頁人看得懂的畫面，方便直接用手機瀏覽器確認
-  const okDeck = deckName ? `已載入「${deckName}」${deck.length} 張` : '目前沒有開著的簡報'
+  const okDeck = deckName ? `已載入「${escapeHtml(deckName)}」${deck.length} 張` : '目前沒有開著的簡報'
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
   res.end(`<!doctype html><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -227,7 +228,12 @@ const httpServer = createHttpServer((req, res) => {
 </body>`)
 })
 
-const wss = new WebSocketServer({ server: httpServer })
+/**
+ * 單一訊息上限。ws 預設 100 MiB，對面送一包就能讓 agent 配置上百 MB 再 JSON.parse。
+ * 實際最大的是 audio（約 0.1 秒 PCM 的 base64，幾 KB）與 lines（一張稿的行陣列）。
+ */
+const MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_MESSAGE_BYTES })
 
 /**
  * 同一台裝置最多幾條連線。
@@ -324,12 +330,15 @@ wss.on('connection', (ws, req) => {
   pushBundle(ws)
 
   ws.on('message', raw => {
-    let msg: ControlMessage
+    let parsed: unknown
     try {
-      msg = JSON.parse(String(raw))
+      parsed = JSON.parse(String(raw))
     } catch {
       return
     }
+    // 欄位型別不對就丟掉，不要讓半殘的訊息進到 AppleScript 或 WAV 表頭（見 control.ts）
+    const msg = parseControl(parsed)
+    if (!msg) return
     handleControl(msg).catch(err => log(`處理 ${msg.type} 失敗：${errMsg(err)}`))
   })
 
@@ -454,6 +463,10 @@ async function handleControl(msg: ControlMessage): Promise<void> {
   }
 
   if (msg.type === 'pickDeck') {
+    if (!isKnownDeck(msg.name, documents)) {
+      log(`忽略 pickDeck：Keynote 沒有開著「${msg.name?.slice(0, 80)}」`)
+      return
+    }
     pinnedDeck = msg.name
     log(pinnedDeck ? `改為跟隨「${pinnedDeck}」` : '改為自動跟隨（最前面／播放中的那一份）')
     await refreshDeck(true)
@@ -898,8 +911,14 @@ async function ensureModel(): Promise<string | null> {
     let got = 0, lastLogged = 0
 
     const out = createWriteStream(tmp)
+    // 一開始就掛 error：磁碟滿、權限錯時 WriteStream 會發 'error'，
+    // 沒有監聽者的話 Node 直接把它當未捕捉例外丟出，整個 agent 會掛掉（unhandledRejection 攔不到）。
+    let writeErr: Error | null = null
+    out.on('error', e => { writeErr = e })
     for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-      out.write(chunk)
+      if (writeErr) throw writeErr
+      // 尊重背壓：網路比磁碟快時不要把整個 141 MB 堆在記憶體裡
+      if (!out.write(chunk)) await new Promise<void>(r => { out.once('drain', r); out.once('error', () => r()) })
       got += chunk.length
       if (total) {
         const pct = Math.floor((got / total) * 100)
@@ -909,7 +928,9 @@ async function ensureModel(): Promise<string | null> {
         }
       }
     }
-    await new Promise<void>((r, j) => out.end(() => r()).on('error', j))
+    if (writeErr) throw writeErr
+    await new Promise<void>((r, j) => { out.once('error', j); out.end(() => r()) })
+    if (writeErr) throw writeErr
     renameSync(tmp, target)
     log('模型下載完成')
     return target

@@ -23,8 +23,28 @@
 
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
+import { asString } from './applescript.ts'
 
 const run = promisify(execFile)
+
+/**
+ * 選定要操作的文件，結果放在 AppleScript 變數 d。
+ *
+ * 使用者在手機上點名指定了某一份就跟那一份；那份被關掉時自動退回最前面的。
+ * 名稱來自手機端，必須用 asString() 逸出——見 applescript.ts。
+ */
+function pickDocument(pinned: string | null): string {
+  if (!pinned) return `
+      set d to front document`
+  return `
+      set d to front document
+      repeat with x in documents
+        if (name of x) is ${asString(pinned)} then
+          set d to x
+          exit repeat
+        end if
+      end repeat`
+}
 
 /** 現行版（Creator Studio，2026-01 起）。優先順序高。 */
 const KEYNOTE_NEW = 'com.apple.Keynote'
@@ -102,18 +122,7 @@ async function osa(script: string, timeoutMs = 8000): Promise<string> {
  * 所以刻意只回傳輕量欄位，不含講稿內容。
  */
 export async function snapshot(pinned: string | null = null): Promise<KeynoteSnapshot> {
-  // 使用者在手機上點名指定了某一份，就跟那一份；那份被關掉時自動退回最前面的。
-  const pick = pinned
-    ? `
-      set d to front document
-      repeat with x in documents
-        if (name of x) is "${pinned.replace(/"/g, '\\"')}" then
-          set d to x
-          exit repeat
-        end if
-      end repeat`
-    : `
-      set d to front document`
+  const pick = pickDocument(pinned)
 
   // ⚠️ 先確認 Keynote 在跑，才對它 tell。
   // 這支是輪詢每一輪的第一步，Keynote 關掉時仍每 10 秒被呼叫一次；直接 tell 會把它重新叫起來，
@@ -152,17 +161,7 @@ export async function snapshot(pinned: string | null = null): Promise<KeynoteSna
  * 60–100ms，台上多這個延遲很明顯。整份先抓好放記憶體，翻頁時純查表。
  */
 export async function allNotes(pinned: string | null = null): Promise<string[]> {
-  const pick = pinned
-    ? `
-      set d to front document
-      repeat with x in documents
-        if (name of x) is "${pinned.replace(/"/g, '\\"')}" then
-          set d to x
-          exit repeat
-        end if
-      end repeat`
-    : `
-      set d to front document`
+  const pick = pickDocument(pinned)
 
   const raw = await osa(`
     tell application id "${activeApp}"
@@ -204,17 +203,7 @@ export async function allNotes(pinned: string | null = null): Promise<string[]> 
  */
 export async function showSlide(n: number, pinned: string | null = null): Promise<void> {
   // 指定了某一份就對那一份下令，不然眼鏡看的是 A、翻的卻是最前面的 B
-  const pick = pinned
-    ? `
-      set d to front document
-      repeat with x in documents
-        if (name of x) is "${pinned.replace(/"/g, '\\"')}" then
-          set d to x
-          exit repeat
-        end if
-      end repeat`
-    : `
-      set d to front document`
+  const pick = pickDocument(pinned)
   await osa(`
     tell application id "${activeApp}"
       if (count of documents) is 0 then return
@@ -235,17 +224,7 @@ export async function showSlide(n: number, pinned: string | null = null): Promis
  * @returns 下一步之後的張號；失敗（例如 -1708 沒有視窗）丟錯
  */
 export async function showNextAndRead(pinned: string | null = null): Promise<number> {
-  const pick = pinned
-    ? `
-      set d to front document
-      repeat with x in documents
-        if (name of x) is "${pinned.replace(/"/g, '\\"')}" then
-          set d to x
-          exit repeat
-        end if
-      end repeat`
-    : `
-      set d to front document`
+  const pick = pickDocument(pinned)
   const raw = await osa(`
     tell application id "${activeApp}"
       ${pick}

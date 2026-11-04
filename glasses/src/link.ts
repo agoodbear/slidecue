@@ -288,6 +288,9 @@ export class AgentLink {
 
     ws.onclose = ev => {
       console.log('[link] 連線關閉', ev.code, ev.reason)
+      // 已經被新連線取代的舊連線晚來的 close（iOS 斷網時可能晚幾十秒）：
+      // 不能把新連線的 this.ws 清掉、停它的 watchdog、再排一輪重連——那會留下孤兒連線、訊息處理兩次。
+      if (this.ws !== ws) return
       this.ws = null
       this.stopWatchdog()
       this.handlers.onConnectedChange(false)

@@ -90,6 +90,14 @@ let lang: Lang = 'zh'
  * 該由講者明確選擇要不要用，不該預設替他開。
  */
 let follow = false
+/**
+ * link 建好了沒。
+ *
+ * 開場時 loadCachedBundle() → setScript() 會在 `const link` 宣告**之前**執行；
+ * 語音跟隨開著時那裡的 link.send 會丟 ReferenceError（TDZ），被 catch 吞掉後
+ * 快取講稿變成 null——離線備援在最需要的時候失效。連上之後 onConnectedChange 會補送 lines。
+ */
+let linkReady = false
 /** 最後一次收到的計時秒數。斷線後停在這裡，不歸零也不亂跳。 */
 let lastElapsed = 0
 
@@ -143,6 +151,7 @@ const link = new AgentLink({
     }
   },
 }, rememberedHost, connectCode)
+linkReady = true
 
 // ── 眼鏡端：一開啟就是講稿畫面 ────────────────────────────────
 const result = await bridge.createStartUpPageContainer(
@@ -399,11 +408,13 @@ function setScript(notes: string): void {
   pageStart = 0
   // 斷行是這一端用實際字寬算出來的，Mac 無從得知；
   // 但語音對齊必須以行為單位才能指揮箭頭，所以要送過去。
-  if (follow) link.send({ type: 'lines', slide: deck?.slide ?? offlineSlide, lines })
+  if (follow && linkReady) link.send({ type: 'lines', slide: deck?.slide ?? offlineSlide, lines })
 }
 
 /** 箭頭直接跳到某一行——語音跟隨用，與手勢的相對移動不同。 */
 function setCursorLine(line: number): void {
+  // 網路來的值：字串 "3" 或 2.5 會讓之後的 cursorLine + 1 變字串串接、箭頭畫到 out[2.5] 消失
+  if (!Number.isInteger(line)) return
   if (line < 0 || line >= lines.length || line === cursorLine) return
   cursorLine = line
   applyScroll()
